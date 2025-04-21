@@ -90,6 +90,9 @@ pub struct Cli {
     /// Wayland compositor to connect (autodetect by default)
     #[arg(long)]
     pub compositor: Option<crate::compositors::Compositor>,
+    /// upload and serve wallpapers from GPU memory using Vulkan
+    #[arg(long)]
+    pub gpu: bool,
     /// directory with: wallpaper_dir/output/workspace_name.{jpg|png|...}
     pub wallpaper_dir: String,
 }

@@ -1,5 +1,6 @@
 mod compositors;
 mod cli;
+mod gpu;
 mod image;
 mod poll;
 mod signal;
@@ -23,6 +24,7 @@ use rustix::{
 };
 use smithay_client_toolkit::{
     compositor::CompositorState,
+    dmabuf::DmabufState,
     output::OutputState,
     registry::RegistryState,
     shell::wlr_layer::LayerShell,
@@ -41,6 +43,7 @@ use crate::{
     cli::{Cli, PixelFormat},
     compositors::{Compositor, ConnectionTask, WorkspaceVisible},
     image::ColorTransform,
+    gpu::Gpu,
     poll::{Poll, Waker},
     signal::SignalPipe,
     wayland::BackgroundLayer,
@@ -54,36 +57,13 @@ pub struct State {
     pub layer_shell: LayerShell,
     pub viewporter: WpViewporter,
     pub wallpaper_dir: PathBuf,
-    pub force_xrgb8888: bool,
-    pub pixel_format: Option<wl_shm::Format>,
+    pub shm_format: wl_shm::Format,
     pub background_layers: Vec<BackgroundLayer>,
     pub compositor_connection_task: ConnectionTask,
     pub color_transform: ColorTransform,
+    pub dmabuf_state: DmabufState,
+    pub gpu: Option<Gpu>,
 }
-
-impl State {
-    fn pixel_format(&mut self) -> wl_shm::Format
-    {
-        *self.pixel_format.get_or_insert_with(|| {
-
-            if !self.force_xrgb8888 {
-                // Consume less gpu memory by using Bgr888 if available,
-                // fall back to the always supported Xrgb8888 otherwise
-                for format in self.shm.formats() {
-                    if let wl_shm::Format::Bgr888 = format {
-                        debug!("Using pixel format: {:?}", format);
-                        return *format
-                    }
-                    // XXX: One may add Rgb888 and HDR support here
-                }
-            }
-
-            debug!("Using default pixel format: Xrgb8888");
-            wl_shm::Format::Xrgb8888
-        })
-    }
-}
-
 
 fn main() -> Result<(), ()> {
     run().map_err(|e| { error!("{e:#}"); })
@@ -122,11 +102,44 @@ fn run() -> anyhow::Result<()> {
     let compositor_state = CompositorState::bind(&globals, &qh).unwrap();
     let layer_shell = LayerShell::bind(&globals, &qh).unwrap();
     let shm = Shm::bind(&globals, &qh).unwrap();
+    let mut shm_format = wl_shm::Format::Xrgb8888;
+    if cli.pixelformat != Some(PixelFormat::Baseline) {
+        // Consume less gpu memory by using Bgr888 if available,
+        // fall back to the always supported Xrgb8888 otherwise
+        if shm.formats().contains(&wl_shm::Format::Bgr888) {
+            shm_format = wl_shm::Format::Bgr888;
+        }
+    }
+    debug!("Using shm format: {shm_format:?}");
 
     let registry_state = RegistryState::new(&globals);
 
     let viewporter: WpViewporter = registry_state
         .bind_one(&qh, 1..=1, ()).expect("wp_viewporter not available");
+
+    let dmabuf_state = DmabufState::new(&globals, &qh);
+    let mut gpu = None;
+    if cli.gpu {
+        if let Some(version) = dmabuf_state.version() {
+            if version >= 4 {
+                debug!("Using Linux DMA-BUF version {version}");
+            } else {
+                warn!("Only legacy Linux DMA-BUF version {version} is \
+                    available from the compositor where it gives no \
+                    information about which GPU it uses.");
+                // TODO handle this better by providing cli options
+                // to choose DRM device by major:minor or /dev path
+            }
+            match Gpu::new() {
+                Ok(val) => gpu = Some(val),
+                Err(e) =>
+                    error!("Failed to set up GPU, disabling GPU use: {e:#}"),
+            }
+        } else {
+            error!("Wayland protocol Linux DMA-BUF is unavailable \
+                    from the compositor, disabling GPU use");
+        }
+    }
 
     // Sync tools for sway ipc tasks
     let (tx, rx) = channel();
@@ -144,15 +157,15 @@ fn run() -> anyhow::Result<()> {
         layer_shell,
         viewporter,
         wallpaper_dir,
-        force_xrgb8888: cli.pixelformat
-            .is_some_and(|p| p == PixelFormat::Baseline),
-        pixel_format: None,
+        shm_format,
         background_layers: Vec::new(),
         compositor_connection_task: ConnectionTask::new(
             compositor,
             tx.clone(), Arc::clone(&waker)
         ),
         color_transform,
+        dmabuf_state,
+        gpu,
     };
 
     event_queue.roundtrip(&mut state).unwrap();

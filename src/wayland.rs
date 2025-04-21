@@ -1,14 +1,18 @@
 use std::{
-    cell::Cell,
+    cell::RefCell,
+    os::fd::AsFd,
     path::PathBuf,
-    rc::Rc,
+    rc::{Rc, Weak},
 };
 
+use anyhow::{bail, Context};
 use log::{debug, error, warn};
+use rustix::fs::{Dev, major, minor};
 use smithay_client_toolkit::{
-    delegate_compositor, delegate_layer, delegate_output, delegate_registry,
-    delegate_shm,
+    delegate_compositor, delegate_dmabuf, delegate_layer, delegate_output,
+    delegate_registry, delegate_shm,
     compositor::{CompositorHandler, Region},
+    dmabuf::{DmabufFeedback, DmabufHandler, DmabufState},
     output::{OutputHandler, OutputState},
     registry::{ProvidesRegistryState, RegistryState},
     registry_handlers,
@@ -33,13 +37,23 @@ use smithay_client_toolkit::reexports::client::{
         wl_surface::WlSurface,
     },
 };
-use smithay_client_toolkit::reexports::protocols::wp::viewporter::client::{
-    wp_viewport::WpViewport,
-    wp_viewporter::WpViewporter
+use smithay_client_toolkit::reexports::protocols::wp::{
+    linux_dmabuf::zv1::client::{
+        zwp_linux_dmabuf_feedback_v1::ZwpLinuxDmabufFeedbackV1,
+        zwp_linux_buffer_params_v1::{self, ZwpLinuxBufferParamsV1},
+    },
+    viewporter::client::{
+        wp_viewport::WpViewport,
+        wp_viewporter::WpViewporter
+    }
 };
 
 use crate::{
     State,
+    gpu::{
+        DRM_FORMAT_XRGB8888, fmt_modifier,
+        GpuMemory, GpuUploader, GpuWallpaper,
+    },
     image::{load_wallpaper, output_wallpaper_files, WallpaperFile},
 };
 
@@ -88,6 +102,119 @@ impl CompositorHandler for State
         _surface: &WlSurface,
         _output: &wl_output::WlOutput,
     ) {
+    }
+}
+
+impl DmabufHandler for State {
+    fn dmabuf_state(&mut self) -> &mut DmabufState {
+        &mut self.dmabuf_state
+    }
+
+    fn dmabuf_feedback(
+        &mut self,
+        _conn: &Connection,
+        qh: &QueueHandle<Self>,
+        proxy: &ZwpLinuxDmabufFeedbackV1,
+        feedback: DmabufFeedback,
+    ) {
+        let Some(bg_layer_pos) = self.background_layers.iter()
+            .position(|bg_layer|
+                bg_layer.dmabuf_feedback.as_ref() == Some(proxy)
+            )
+        else {
+            error!("Received unexpected Linux DMA-BUF feedback");
+            return
+        };
+        if let Err(e) = handle_dmabuf_feedback(
+            self,
+            qh,
+            feedback,
+            bg_layer_pos
+        ) {
+            error!("Failed to proceed with DMA-BUF feedback, \
+                falling back to shm: {e:#}");
+            fallback_shm_load_wallpapers(self, qh, bg_layer_pos);
+        }
+    }
+
+    fn created(
+        &mut self,
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+        params: &ZwpLinuxBufferParamsV1,
+        buffer: WlBuffer,
+    ) {
+        for bg_layer in self.background_layers.iter_mut() {
+            for workspace_bg in bg_layer.workspace_backgrounds.iter_mut() {
+                let wallpaper = &workspace_bg.wallpaper;
+                let mut wallpaper_borrow = wallpaper.borrow_mut();
+                if wallpaper_borrow.memory.dmabuf_params_destroy_eq(params) {
+                    wallpaper_borrow.wl_buffer = Some(buffer);
+                    debug!("Created Linux DMA-BUF buffer for wallpaper \
+                        file {:?}", wallpaper_borrow.canon_path);
+                    drop(wallpaper_borrow);
+                    if let Some(queued_weak) = &bg_layer.queued_wallpaper {
+                        if let Some(queued) = queued_weak.upgrade() {
+                            if Rc::ptr_eq(&queued, wallpaper) {
+                                let name = workspace_bg.workspace_name.clone();
+                                bg_layer.draw_workspace_bg(&name);
+                            }
+                        }
+                    }
+                    return
+                }
+            }
+        }
+        error!("Received unexpected created Linux DMA-BUF buffer");
+    }
+
+    fn failed(
+        &mut self,
+        _conn: &Connection,
+        qh: &QueueHandle<Self>,
+        params: &ZwpLinuxBufferParamsV1,
+    ) {
+        error!("Failed to create a Linux DMA-BUF buffer");
+        let mut failed_bg_layer_indecies = Vec::new();
+        for (i, bg_layer) in self.background_layers.iter_mut().enumerate() {
+            for workspace_bg in bg_layer.workspace_backgrounds.iter_mut() {
+                let mut wallpaper = workspace_bg.wallpaper.borrow_mut();
+                if wallpaper.memory.dmabuf_params_destroy_eq(params) {
+                    error!("Falling back to shm and reloading wallpapers \
+                        for output {}", bg_layer.output_name);
+                    failed_bg_layer_indecies.push(i);
+                    break
+                }
+            }
+        }
+        for index in failed_bg_layer_indecies {
+            fallback_shm_load_wallpapers(self, qh, index);
+        }
+    }
+
+    fn released(
+        &mut self,
+        _conn: &Connection,
+        _qh: &QueueHandle<Self>,
+        buffer: &WlBuffer
+    ) {
+        for bg in self.background_layers.iter_mut()
+            .flat_map(|bg_layer| &mut bg_layer.workspace_backgrounds)
+        {
+            let mut wallpaper = bg.wallpaper.borrow_mut();
+            if wallpaper.wl_buffer.as_ref() == Some(buffer) {
+                if let Some(new_count) = wallpaper.active_count.checked_sub(1) {
+                    debug!("Compositor released the DMA-BUF wl_buffer of {:?}",
+                        wallpaper.canon_path);
+                    wallpaper.active_count = new_count;
+                } else {
+                    error!("Unexpected release event for the DMA-BUF \
+                        wl_buffer of {:?}", wallpaper.canon_path);
+                }
+                return
+            }
+        }
+        warn!("Release event for already destroyed DMA-BUF wl_buffer");
     }
 }
 
@@ -272,131 +399,63 @@ logical size: {}x{}, transform: {:?}",
 
         layer.commit();
 
-        let pixel_format = self.pixel_format();
-        let output_dir = self.wallpaper_dir.join(&output_name);
-        debug!("Looking for wallpapers for new output {} in {:?}",
-            output_name, output_dir);
-        let wallpaper_files = match output_wallpaper_files(&output_dir) {
-            Ok(wallpaper_files) => wallpaper_files,
-            Err(e) => {
-                error!("Failed to get wallpapers for new output {output_name} \
-                    form {output_dir:?}: {e:#}");
-                return
-            }
-        };
-        let mut workspace_backgrounds = Vec::new();
-        let mut resizer = fast_image_resize::Resizer::new();
-        let mut reused_count = 0usize;
-        let mut loaded_count = 0usize;
-        let mut error_count = 0usize;
-        for wallpaper_file in wallpaper_files {
-            if log::log_enabled!(log::Level::Debug) {
-                if wallpaper_file.path == wallpaper_file.canon_path {
-                    debug!("Wallpaper file {:?} for workspace {}",
-                        wallpaper_file.path, wallpaper_file.workspace);
-                } else {
-                    debug!("Wallpaper file {:?} -> {:?} for workspace {}",
-                        wallpaper_file.path, wallpaper_file.canon_path,
-                        wallpaper_file.workspace);
+        let mut dmabuf_feedback = None;
+        let mut gpu_uploader = None;
+        if let Some(gpu) = self.gpu.as_mut() {
+            if self.dmabuf_state.version().unwrap() >= 4 {
+                match self.dmabuf_state.get_surface_feedback(surface, qh) {
+                    Ok(feedback) => {
+                        debug!("Requesting Linux DMA-BUF surface feedback \
+                            for output {}", output_name);
+                        dmabuf_feedback = Some(feedback);
+                    },
+                    Err(e) => {
+                        error!("Failed to request Linux DMA-BUF surface \
+                            feedback for the surface on output {}: {}",
+                            output_name, e);
+                    },
                 }
+            } else {
+                let drm_format_modifiers = self.dmabuf_state.modifiers().iter()
+                    .filter(|dmabuf_format|
+                        dmabuf_format.format == DRM_FORMAT_XRGB8888
+                    )
+                    .map(|dmabuf_format| dmabuf_format.modifier)
+                    .collect::<Vec<_>>();
+                match gpu.uploader(
+                    None,
+                    width as u32,
+                    height as u32,
+                    drm_format_modifiers,
+                ) {
+                    Ok(uploader) => gpu_uploader = Some(uploader),
+                    Err(e) => error!("Failed to obtain GPU uploader: {e:#}"),
+                };
             }
-            if let Some(wallpaper) = find_equal_output_wallpaper(
-                &workspace_backgrounds,
-                &wallpaper_file
-            ) {
-                workspace_backgrounds.push(WorkspaceBackground {
-                    workspace_name: wallpaper_file.workspace,
-                    wallpaper
-                });
-                reused_count += 1;
-                continue
-            }
-            if let Some(wallpaper) = find_equal_wallpaper(
-                &self.background_layers,
-                width,
-                height,
-                info.transform,
-                &wallpaper_file
-            ) {
-                workspace_backgrounds.push(WorkspaceBackground {
-                    workspace_name: wallpaper_file.workspace,
-                    wallpaper
-                });
-                reused_count += 1;
-                continue
-            }
-            let stride = match pixel_format {
-                wl_shm::Format::Xrgb8888 => width as usize * 4,
-                wl_shm::Format::Bgr888 => {
-                    // Align buffer stride to both 4 and pixel format
-                    // block size. Not being aligned to 4 caused
-                    // https://github.com/gergo-salyi/multibg-sway/issues/6
-                    (width as usize * 3).next_multiple_of(4)
-                },
-                _ => unreachable!()
-            };
-            let shm_size = stride * height as usize;
-            let mut shm_pool = match RawPool::new(shm_size, &self.shm) {
-                Ok(shm_pool) => shm_pool,
-                Err(e) => {
-                    error!("Failed to create shm pool: {e}");
-                    error_count += 1;
-                    continue
-                }
-            };
-            if let Err(e) = load_wallpaper(
-                &wallpaper_file.path,
-                &mut shm_pool.mmap()[..shm_size],
-                width as u32,
-                height as u32,
-                stride,
-                pixel_format,
-                self.color_transform,
-                &mut resizer
-            ) {
-                error!("Failed to load wallpaper: {e:#}");
-                error_count += 1;
-                continue
-            }
-            let wl_buffer = shm_pool.create_buffer(
-                0,
-                width,
-                height,
-                stride.try_into().unwrap(),
-                pixel_format,
-                (),
-                qh
-            );
-            workspace_backgrounds.push(WorkspaceBackground {
-                workspace_name: wallpaper_file.workspace,
-                wallpaper: Rc::new(Wallpaper {
-                    wl_buffer,
-                    active_count: Cell::new(0),
-                    shm_pool,
-                    canon_path: wallpaper_file.canon_path,
-                    canon_modified: wallpaper_file.canon_modified,
-                })
-            });
-            loaded_count += 1;
         }
-        debug!("Wallpapers for new output: {} reused, {} loaded, {} errors",
-            reused_count, loaded_count, error_count);
-        debug!("Wallpapers are available for workspaces: {}",
-            workspace_backgrounds.iter()
-                .map(|bg| bg.workspace_name.as_str())
-                .collect::<Vec<_>>().join(", "));
+        let is_dmabuf_feedback = dmabuf_feedback.is_some();
+        let bg_layer_index = self.background_layers.len();
         self.background_layers.push(BackgroundLayer {
             output_name,
             width,
             height,
             layer,
             configured: false,
-            workspace_backgrounds,
-            current_workspace: None,
+            workspace_backgrounds: Vec::new(),
+            current_wallpaper: None,
+            queued_wallpaper: None,
             transform: info.transform,
             viewport,
+            dmabuf_feedback,
         });
-        print_memory_stats(&self.background_layers);
+        if !is_dmabuf_feedback {
+            load_wallpapers(
+                self,
+                qh,
+                bg_layer_index,
+                gpu_uploader,
+            );
+        }
     }
 
     fn update_output(
@@ -601,6 +660,7 @@ impl ShmHandler for State {
 }
 
 delegate_compositor!(State);
+delegate_dmabuf!(State);
 delegate_layer!(State);
 delegate_output!(State);
 delegate_registry!(State);
@@ -641,20 +701,20 @@ impl Dispatch<WlBuffer, ()> for State {
         _conn: &Connection,
         _qhandle: &QueueHandle<Self>,
     ) {
-        for bg_layer in state.background_layers.iter_mut() {
-            for bg in bg_layer.workspace_backgrounds.iter_mut() {
-                if bg.wallpaper.wl_buffer == *proxy {
-                    let active_count = bg.wallpaper.active_count.get();
-                    if let Some(new_count) = active_count.checked_sub(1) {
-                        debug!("Compositor released the wl_shm wl_buffer \
-                            of {:?}", bg.wallpaper.canon_path);
-                        bg.wallpaper.active_count.set(new_count);
-                    } else {
-                        error!("Unexpected release event for the wl_shm \
-                            wl_buffer of {:?}", bg.wallpaper.canon_path);
-                    }
-                    return
+        for bg in state.background_layers.iter_mut()
+            .flat_map(|bg_layer| &mut bg_layer.workspace_backgrounds)
+        {
+            let mut wallpaper = bg.wallpaper.borrow_mut();
+            if wallpaper.wl_buffer.as_ref() == Some(proxy) {
+                if let Some(new_count) = wallpaper.active_count.checked_sub(1) {
+                    debug!("Compositor released the wl_shm wl_buffer of {:?}",
+                        wallpaper.canon_path);
+                    wallpaper.active_count = new_count;
+                } else {
+                    error!("Unexpected release event for the wl_shm \
+                        wl_buffer of {:?}", wallpaper.canon_path);
                 }
+                return
             }
         }
         warn!("Release event for already destroyed wl_shm wl_buffer");
@@ -668,10 +728,13 @@ pub struct BackgroundLayer {
     pub layer: LayerSurface,
     pub configured: bool,
     pub workspace_backgrounds: Vec<WorkspaceBackground>,
-    pub current_workspace: Option<String>,
+    pub current_wallpaper: Option<Rc<RefCell<Wallpaper>>>,
+    pub queued_wallpaper: Option<Weak<RefCell<Wallpaper>>>,
     pub transform: Transform,
     pub viewport: Option<WpViewport>,
+    pub dmabuf_feedback: Option<ZwpLinuxDmabufFeedbackV1>,
 }
+
 impl BackgroundLayer
 {
     pub fn draw_workspace_bg(&mut self, workspace_name: &str)
@@ -682,12 +745,6 @@ impl BackgroundLayer
                 self.output_name
             );
             return;
-        }
-
-        if self.current_workspace.as_deref() == Some(workspace_name) {
-            debug!("Skipping draw on output {} for workspace {} because its \
-                wallpaper is already set", self.output_name, workspace_name);
-            return
         }
 
         let Some(workspace_bg) = self.workspace_backgrounds.iter()
@@ -706,19 +763,36 @@ impl BackgroundLayer
             );
             return;
         };
+        let wallpaper = &workspace_bg.wallpaper;
+
+        if let Some(current) = &self.current_wallpaper {
+            if Rc::ptr_eq(current, wallpaper) {
+                debug!("Skipping draw on output {} for workspace {} \
+                    because its wallpaper is already set",
+                    self.output_name, workspace_name);
+                return
+            }
+        }
+
+        let mut wallpaper_borrow = wallpaper.borrow_mut();
+        let Some(wl_buffer) = wallpaper_borrow.wl_buffer.as_ref() else {
+            debug!("Wallpaper for output {} workspace {} is not ready yet",
+                self.output_name, workspace_name);
+            self.queued_wallpaper = Some(Rc::downgrade(wallpaper));
+            return
+        };
 
         // Attach and commit to new workspace background
-        self.layer.attach(Some(&workspace_bg.wallpaper.wl_buffer), 0, 0);
-        workspace_bg.wallpaper.active_count.set(
-            workspace_bg.wallpaper.active_count.get() + 1
-        );
+        self.layer.attach(Some(wl_buffer), 0, 0);
+        wallpaper_borrow.active_count += 1;
 
         // Damage the entire surface
         self.layer.wl_surface().damage_buffer(0, 0, self.width, self.height);
 
         self.layer.commit();
 
-        self.current_workspace = Some(workspace_name.to_string());
+        self.current_wallpaper = Some(Rc::clone(wallpaper));
+        self.queued_wallpaper = None;
 
         debug!(
             "Setting wallpaper on output '{}' for workspace: {}",
@@ -729,24 +803,65 @@ impl BackgroundLayer
 
 pub struct WorkspaceBackground {
     pub workspace_name: String,
-    pub wallpaper: Rc<Wallpaper>,
+    pub wallpaper: Rc<RefCell<Wallpaper>>,
 }
 
 pub struct Wallpaper {
-    pub wl_buffer: WlBuffer,
-    pub active_count: Cell<usize>,
-    pub shm_pool: RawPool,
+    pub wl_buffer: Option<WlBuffer>,
+    pub active_count: usize,
+    pub memory: Memory,
     pub canon_path: PathBuf,
     pub canon_modified: u128,
 }
 
 impl Drop for Wallpaper {
     fn drop(&mut self) {
-        if self.active_count.get() != 0 {
-            warn!("Destroying a {} times active wl_buffer of wallpaper {:?}",
-                self.active_count.get(), self.canon_path);
+        if let Some(wl_buffer) = &self.wl_buffer {
+            if self.active_count != 0 {
+                warn!("Destroying a {} times active wl_buffer of \
+                    wallpaper {:?}", self.active_count, self.canon_path);
+            }
+            wl_buffer.destroy();
         }
-        self.wl_buffer.destroy();
+    }
+}
+
+pub enum Memory {
+    WlShm { pool: RawPool },
+    Dmabuf { gpu_memory: GpuMemory, params: Option<ZwpLinuxBufferParamsV1> },
+}
+
+impl Memory {
+    fn gpu_uploader_eq(&self, gpu_uploader: Option<&GpuUploader>) -> bool {
+        if let Some(gpu_uploader) = gpu_uploader {
+            match self {
+                Memory::WlShm { .. } => false,
+                Memory::Dmabuf { gpu_memory, .. } => {
+                    gpu_memory.gpu_uploader_eq(gpu_uploader)
+                },
+            }
+        } else {
+            match self {
+                Memory::WlShm { .. } => true,
+                Memory::Dmabuf { .. } => false,
+            }
+        }
+    }
+
+    fn dmabuf_params_destroy_eq(
+        &mut self,
+        other_params: &ZwpLinuxBufferParamsV1
+    ) -> bool {
+        if let Memory::Dmabuf { params: params_option, .. } = self {
+            if let Some(params) = params_option {
+                if params == other_params {
+                    params.destroy();
+                    *params_option = None;
+                    return true
+                }
+            }
+        }
+        false
     }
 }
 
@@ -759,16 +874,19 @@ fn find_equal_wallpaper(
     width: i32,
     height: i32,
     transform: Transform,
-    wallpaper_file: &WallpaperFile
-) -> Option<Rc<Wallpaper>> {
+    wallpaper_file: &WallpaperFile,
+    gpu_uploader: Option<&GpuUploader>,
+) -> Option<Rc<RefCell<Wallpaper>>> {
     for bg_layer in background_layers {
         if bg_layer.width == width
             && bg_layer.height == height
             && bg_layer.transform == transform
         {
             for bg in &bg_layer.workspace_backgrounds {
-                if bg.wallpaper.canon_modified == wallpaper_file.canon_modified
-                    && bg.wallpaper.canon_path == wallpaper_file.canon_path
+                let wallpaper = bg.wallpaper.borrow();
+                if wallpaper.canon_modified == wallpaper_file.canon_modified
+                    && wallpaper.canon_path == wallpaper_file.canon_path
+                    && wallpaper.memory.gpu_uploader_eq(gpu_uploader)
                 {
                     debug!("Reusing the wallpaper of output {} workspace {}",
                         bg_layer.output_name, bg.workspace_name);
@@ -782,11 +900,14 @@ fn find_equal_wallpaper(
 
 fn find_equal_output_wallpaper(
     workspace_backgrounds: &[WorkspaceBackground],
-    wallpaper_file: &WallpaperFile
-) -> Option<Rc<Wallpaper>> {
+    wallpaper_file: &WallpaperFile,
+    gpu_uploader: Option<&GpuUploader>,
+) -> Option<Rc<RefCell<Wallpaper>>> {
     for bg in workspace_backgrounds {
-        if bg.wallpaper.canon_modified == wallpaper_file.canon_modified
-            && bg.wallpaper.canon_path == wallpaper_file.canon_path
+        let wallpaper = bg.wallpaper.borrow();
+        if wallpaper.canon_modified == wallpaper_file.canon_modified
+            && wallpaper.canon_path == wallpaper_file.canon_path
+            && wallpaper.memory.gpu_uploader_eq(gpu_uploader)
         {
             debug!("Reusing the wallpaper of workspace {}",
                 bg.workspace_name);
@@ -800,15 +921,340 @@ fn print_memory_stats(background_layers: &[BackgroundLayer]) {
     if log::log_enabled!(log::Level::Debug) {
         let mut wl_shm_count = 0.0f32;
         let mut wl_shm_size = 0.0f32;
+        let mut dmabuf_count = 0.0f32;
+        let mut dmabuf_size = 0.0f32;
         for bg_layer in background_layers {
             for bg in &bg_layer.workspace_backgrounds {
                 let factor = 1.0 / Rc::strong_count(&bg.wallpaper) as f32;
-                wl_shm_count += factor;
-                wl_shm_size += factor * bg.wallpaper.shm_pool.len() as f32;
+                match &bg.wallpaper.borrow().memory {
+                    Memory::WlShm { pool } => {
+                        wl_shm_count += factor;
+                        wl_shm_size += factor * pool.len() as f32;
+                    },
+                    Memory::Dmabuf { gpu_memory, .. } => {
+                        dmabuf_count += factor;
+                        dmabuf_size += factor * gpu_memory.size() as f32;
+                    },
+                }
             }
         }
-        let count = (wl_shm_count + 0.5) as usize;
-        let size_kb = (wl_shm_size + 0.5) as usize / 1024;
-        debug!("Memory use: {size_kb} KiB from {count} wl_shm pools");
+        let wl_shm_count = (wl_shm_count + 0.5) as usize;
+        let wl_shm_size_kb = (wl_shm_size + 0.5) as usize / 1024;
+        let dmabuf_count = (dmabuf_count + 0.5) as usize;
+        let dmabuf_size_kb = (dmabuf_size + 0.5) as usize / 1024;
+        debug!("Memory use: {wl_shm_size_kb} KiB from {wl_shm_count} wl_shm \
+            pools, {dmabuf_size_kb} KiB from {dmabuf_count} DMA-BUFs");
     }
+}
+
+fn fallback_shm_load_wallpapers(
+    state: &mut State,
+    qh: &QueueHandle<State>,
+    bg_layer_index: usize,
+) {
+    let bg_layer = &mut state.background_layers[bg_layer_index];
+    bg_layer.dmabuf_feedback = None;
+    bg_layer.workspace_backgrounds.clear();
+    load_wallpapers(
+        state,
+        qh,
+        bg_layer_index,
+        None,
+    );
+}
+
+fn load_wallpapers(
+    state: &mut State,
+    qh: &QueueHandle<State>,
+    bg_layer_index: usize,
+    mut gpu_uploader: Option<GpuUploader>,
+) {
+    let bg_layer = &state.background_layers[bg_layer_index];
+    let output_name = bg_layer.output_name.as_str();
+    let width = bg_layer.width;
+    let height = bg_layer.height;
+    let transform = bg_layer.transform;
+    let output_dir = state.wallpaper_dir.join(output_name);
+    debug!("Looking for wallpapers for new output {} in {:?}",
+        output_name, output_dir);
+    let wallpaper_files = match output_wallpaper_files(&output_dir) {
+        Ok(wallpaper_files) => wallpaper_files,
+        Err(e) => {
+            error!("Failed to get wallpapers for new output {output_name} \
+                form {output_dir:?}: {e:#}");
+            return
+        }
+    };
+    let shm_stride = match state.shm_format {
+        wl_shm::Format::Xrgb8888 => width as usize * 4,
+        wl_shm::Format::Bgr888 => {
+            // Align buffer stride to both 4 and pixel format
+            // block size. Not being aligned to 4 caused
+            // https://github.com/gergo-salyi/multibg-sway/issues/6
+            (width as usize * 3).next_multiple_of(4)
+        },
+        _ => unreachable!()
+    };
+    let shm_size = shm_stride * height as usize;
+    let mut workspace_backgrounds = Vec::new();
+    let mut resizer = fast_image_resize::Resizer::new();
+    let mut reused_count = 0usize;
+    let mut loaded_count = 0usize;
+    let mut error_count = 0usize;
+    for wallpaper_file in wallpaper_files {
+        if log::log_enabled!(log::Level::Debug) {
+            if wallpaper_file.path == wallpaper_file.canon_path {
+                debug!("Wallpaper file {:?} for workspace {}",
+                    wallpaper_file.path, wallpaper_file.workspace);
+            } else {
+                debug!("Wallpaper file {:?} -> {:?} for workspace {}",
+                    wallpaper_file.path, wallpaper_file.canon_path,
+                    wallpaper_file.workspace);
+            }
+        }
+        if let Some(wallpaper) = find_equal_output_wallpaper(
+            &workspace_backgrounds,
+            &wallpaper_file,
+            gpu_uploader.as_ref(),
+        ) {
+            workspace_backgrounds.push(WorkspaceBackground {
+                workspace_name: wallpaper_file.workspace,
+                wallpaper,
+            });
+            reused_count += 1;
+            continue
+        }
+        if let Some(wallpaper) = find_equal_wallpaper(
+            &state.background_layers,
+            width,
+            height,
+            transform,
+            &wallpaper_file,
+            gpu_uploader.as_ref(),
+        ) {
+            workspace_backgrounds.push(WorkspaceBackground {
+                workspace_name: wallpaper_file.workspace,
+                wallpaper,
+            });
+            reused_count += 1;
+            continue
+        }
+        if let Some(uploader) = gpu_uploader.as_mut() {
+            if let Err(e) = load_wallpaper(
+                &wallpaper_file.path,
+                uploader.staging_buffer(),
+                width as u32,
+                height as u32,
+                width as usize * 4,
+                wl_shm::Format::Xrgb8888,
+                state.color_transform,
+                &mut resizer
+            ) {
+                error!("Failed to load wallpaper: {e:#}");
+                error_count += 1;
+                continue
+            }
+            match uploader.upload() {
+                Ok(gpu_wallpaper) => {
+                    let wallpaper = wallpaper_dmabuf(
+                        &state.dmabuf_state,
+                        qh,
+                        gpu_wallpaper,
+                        width,
+                        height,
+                        wallpaper_file.canon_path,
+                        wallpaper_file.canon_modified,
+                    );
+                    workspace_backgrounds.push(WorkspaceBackground {
+                        workspace_name: wallpaper_file.workspace,
+                        wallpaper,
+                    });
+                    loaded_count += 1;
+                    continue
+                },
+                Err(e) => {
+                    error!("Failed to upload wallpaper to GPU: {e:#}");
+                    gpu_uploader = None;
+                    // fall back to shm
+                }
+            }
+        }
+        let mut shm_pool = match RawPool::new(shm_size, &state.shm) {
+            Ok(shm_pool) => shm_pool,
+            Err(e) => {
+                error!("Failed to create shm pool: {e}");
+                error_count += 1;
+                continue
+            }
+        };
+        if let Err(e) = load_wallpaper(
+            &wallpaper_file.path,
+            shm_pool.mmap(),
+            width as u32,
+            height as u32,
+            shm_stride,
+            state.shm_format,
+            state.color_transform,
+            &mut resizer
+        ) {
+            error!("Failed to load wallpaper: {e:#}");
+            error_count += 1;
+            continue
+        }
+        let wl_buffer = shm_pool.create_buffer(
+            0,
+            width,
+            height,
+            shm_stride.try_into().unwrap(),
+            state.shm_format,
+            (),
+            qh
+        );
+        workspace_backgrounds.push(WorkspaceBackground {
+            workspace_name: wallpaper_file.workspace,
+            wallpaper: Rc::new(RefCell::new(Wallpaper {
+                wl_buffer: Some(wl_buffer),
+                active_count: 0,
+                memory: Memory::WlShm { pool: shm_pool },
+                canon_path: wallpaper_file.canon_path,
+                canon_modified: wallpaper_file.canon_modified,
+            })),
+        });
+        loaded_count += 1;
+    }
+    debug!("Wallpapers for new output: {} reused, {} loaded, {} errors",
+        reused_count, loaded_count, error_count);
+    debug!("Wallpapers are available for workspaces: {}",
+        workspace_backgrounds.iter()
+            .map(|bg| bg.workspace_name.as_str())
+            .collect::<Vec<_>>().join(", "));
+    state.background_layers[bg_layer_index].workspace_backgrounds =
+        workspace_backgrounds;
+    print_memory_stats(&state.background_layers);
+}
+
+fn handle_dmabuf_feedback(
+    state: &mut State,
+    qh: &QueueHandle<State>,
+    feedback: DmabufFeedback,
+    bg_layer_pos: usize,
+) -> anyhow::Result<()> {
+    let bg_layer = &mut state.background_layers[bg_layer_pos];
+    let main_dev = feedback.main_device();
+    let format_table = feedback.format_table();
+    let tranches = feedback.tranches();
+    debug!("Linux DMA-BUF feedback for output {}, main device {}:{}, \
+        {} format table entries, {} tranches", &bg_layer.output_name,
+        major(main_dev), minor(main_dev),
+        format_table.len(), tranches.len());
+    if tranches.is_empty() {
+        bail!("Linux DMA-BUF feedback has 0 tranches");
+    }
+    let mut selected = None;
+    for (index, tranche) in tranches.iter().enumerate() {
+        let target_dev = tranche.device;
+        debug!("Tranche {index} target device {}:{}",
+            major(target_dev), minor(target_dev));
+        if selected.is_none() && target_dev == main_dev {
+            selected = Some((index, tranche.formats.as_slice()));
+        }
+    }
+    let Some((index, formats)) = selected else {
+        bail!("No tranche has the main device as target device");
+    };
+    debug!("Selected tranche {}, it has {} dmabuf formats",
+        index, formats.len());
+    let mut drm_format_modifiers = Vec::new();
+    for index in formats {
+        let Some(dmabuf_format) = format_table.get(*index as usize) else {
+            error!("Format index {index} is out of bounds");
+            continue
+        };
+        if dmabuf_format.format == DRM_FORMAT_XRGB8888 {
+            drm_format_modifiers.push(dmabuf_format.modifier);
+        }
+    }
+    if drm_format_modifiers.is_empty() {
+        bail!("Selected tranche has no modifiers for DRM_FORMAT_XRGB8888");
+    }
+    debug!("Modifiers for DRM_FORMAT_XRGB8888: {}",
+        drm_format_modifiers.iter()
+            .map(|&modifier| fmt_modifier(modifier))
+            .collect::<Vec<_>>().join(", "));
+    let dmabuf_drm_dev = Some(main_dev as Dev);
+    if !bg_layer.workspace_backgrounds.is_empty()
+        && bg_layer.workspace_backgrounds.iter().all(|bg| {
+            let memory = &bg.wallpaper.borrow().memory;
+            if let Memory::Dmabuf { gpu_memory, .. } = memory {
+                gpu_memory.dmabuf_feedback_eq(
+                    dmabuf_drm_dev,
+                    &drm_format_modifiers
+                )
+            } else {
+                false
+            }
+        })
+    {
+        debug!("Ignoring DMA-BUF feedback with no changes");
+        return Ok(())
+    }
+    let gpu_uploader = state.gpu.as_mut().unwrap().uploader(
+        dmabuf_drm_dev,
+        bg_layer.width as u32,
+        bg_layer.height as u32,
+        drm_format_modifiers
+    ).context("Failed to create GPU uploader")?;
+    if !bg_layer.workspace_backgrounds.is_empty() {
+        debug!("DMA-BUF feedback changed, reloading wallpapers");
+        bg_layer.workspace_backgrounds.clear();
+    }
+    load_wallpapers(
+        state,
+        qh,
+        bg_layer_pos,
+        Some(gpu_uploader),
+    );
+    Ok(())
+}
+
+fn wallpaper_dmabuf(
+    dmabuf_state: &DmabufState,
+    qh: &QueueHandle<State>,
+    gpu_wallpaper: GpuWallpaper,
+    width: i32,
+    height: i32,
+    canon_path: PathBuf,
+    canon_modified: u128,
+) -> Rc<RefCell<Wallpaper>> {
+    let GpuWallpaper {
+        drm_format_modifier,
+        memory_planes_len,
+        memory_planes,
+        gpu_memory,
+        fd,
+    } = gpu_wallpaper;
+    let dmabuf_params = dmabuf_state.create_params(qh).unwrap();
+    #[allow(clippy::needless_range_loop)]
+    for memory_plane_index in 0..memory_planes_len {
+        dmabuf_params.add(
+            fd.as_fd(),
+            memory_plane_index as u32,
+            memory_planes[memory_plane_index].offset as u32,
+            memory_planes[memory_plane_index].stride as u32,
+            drm_format_modifier,
+        );
+    }
+    let params = dmabuf_params.create(
+        width,
+        height,
+        DRM_FORMAT_XRGB8888,
+        zwp_linux_buffer_params_v1::Flags::empty(),
+    );
+    Rc::new(RefCell::new(Wallpaper {
+        wl_buffer: None,
+        active_count: 0,
+        memory: Memory::Dmabuf { gpu_memory, params: Some(params) },
+        canon_path,
+        canon_modified,
+    }))
 }

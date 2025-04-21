@@ -73,7 +73,7 @@ pub fn output_wallpaper_files(
 
 pub fn load_wallpaper(
     path: &Path,
-    dst: &mut [u8],
+    buffer: &mut [u8],
     surface_width: u32,
     surface_height: u32,
     surface_stride: usize,
@@ -81,6 +81,11 @@ pub fn load_wallpaper(
     color_transform: ColorTransform,
     resizer: &mut Resizer,
 ) -> anyhow::Result<()> {
+    let surface_size = surface_stride * surface_height as usize;
+    let Some(dst) = buffer.get_mut(..surface_size) else {
+        bail!("Provided buffer size {} smaller than wallpaper image size {}",
+            buffer.len(), surface_size);
+    };
     let reader = ImageReader::open(path)
         .context("Failed to open image file")?
         .with_guessed_format()
@@ -101,7 +106,6 @@ pub fn load_wallpaper(
     if image_width == 0 || image_height == 0 || image_size > isize::MAX as u64 {
         bail!("Image has invalid dimensions {image_width}x{image_height}")
     };
-    let image_size = image_size as usize;
     debug!("Image {image_width}x{image_height} {image_color_type:?}");
     if image_color_type.has_alpha() {
         warn!("Image has alpha channel which will be ignored");
@@ -120,8 +124,7 @@ pub fn load_wallpaper(
         && surface_row_len == surface_stride
     {
         debug!("Decoding image directly to destination buffer");
-        decoder.read_image(&mut dst[..image_size])
-            .context("Failed to decode image")?;
+        decoder.read_image(dst).context("Failed to decode image")?;
         return Ok(());
     }
     let mut image = DynamicImage::from_decoder(decoder)

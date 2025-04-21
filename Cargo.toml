@@ -15,25 +15,25 @@ exclude = ["/PKGBUILD", "/scripts/"]
 
 [dependencies]
 anyhow = "1.0.97"
+ash = "0.38.0"
 clap = { version = "4.5.3", features = ["derive"] }
 env_logger = "0.11.3"
 fast_image_resize = "5.0.0"
 libc = "0.2.171"
 log = "0.4.21"
-rustix = {version = "0.38.44", features = ["event", "pipe"] }
+niri-ipc = "=25.2.0"
+rustix = { version = "0.38.44", features = ["event", "fs", "pipe"] }
+scopeguard = "1.2.0"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
+smithay-client-toolkit = { version = "0.19.2", default-features = false }
 swayipc = "3.0.2"
-niri-ipc = "=25.2.0"
 
 [dependencies.image]
 version = "0.25.6"
 default-features = false
 features = ["bmp", "dds", "exr", "ff", "gif", "hdr", "ico", "jpeg", "png", "pnm", "qoi", "tga", "tiff", "webp"]
 
-[dependencies.smithay-client-toolkit]
-version = "0.19.2"
-default-features = false
-
 [features]
+default = ["avif"]
 avif = ["image/avif-native"]

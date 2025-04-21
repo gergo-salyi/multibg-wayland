@@ -12,6 +12,8 @@ optdepends=(
     'hyprland: supported window manager to set the wallpapers with'
     'niri: supported window manager to set the wallpapers with'
     'sway: supported window manager to set the wallpapers with'
+    'vulkan-driver: upload and serve wallpapers from GPU memory'
+    'vulkan-icd-loader: upload and serve wallpapers from GPU memory'
 )
 source=("$pkgname-$pkgver.tar.gz::https://static.crates.io/crates/$pkgname/$pkgname-$pkgver.crate")
 sha256sums=('2b087124ea07635e53d411e707f7d22f73c69b40f3986a42c841f9cc19fc2d51')
