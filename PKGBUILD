@@ -5,7 +5,8 @@ pkgrel=1
 pkgdesc='Set a different wallpaper for the background of each Sway workspace'
 arch=('x86_64' 'i686' 'pentium4' 'armv7h' 'aarch64')
 url="https://github.com/gergo-salyi/multibg-sway"
-license=('MIT' 'Apache')
+# Direct source files are MIT OR Apache-2.0 but have GPL-3.0-or-later dependencies
+license=('GPL-3.0-or-later')
 depends=('dav1d>=1.3.0' 'gcc-libs' 'glibc')
 makedepends=('cargo')
 optdepends=(
@@ -35,5 +36,4 @@ package() {
     cd "$pkgname-$pkgver"
     install -Dm0755 -t "$pkgdir/usr/bin/" "target/release/$pkgname"
     install -Dm644 "README.md" "$pkgdir/usr/share/doc/${pkgname}/README.md"
-    install -Dm644 "LICENSE-MIT" "$pkgdir/usr/share/licenses/${pkgname}/LICENSE-MIT"
 }

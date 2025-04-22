@@ -100,3 +100,9 @@ Please include a verbose log from you terminal by running with `RUST_BACKTRACE=1
 - [hyprpaper](https://github.com/hyprwm/hyprpaper)
 - [mpvpaper](https://github.com/GhostNaN/mpvpaper)
 - [oguri](https://github.com/vilhalmer/oguri)
+
+## License
+
+Source files in this project are distributed under MIT OR Apache-2.0
+
+Objects resulting from building this project might be under GPL-3.0-or-later due to licenses of statically linked dependencies. Open an issue if you need compile time features gating such dependencies.
