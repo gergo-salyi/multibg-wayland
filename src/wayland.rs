@@ -57,8 +57,7 @@ use crate::{
     image::{load_wallpaper, output_wallpaper_files, WallpaperFile},
 };
 
-impl CompositorHandler for State
-{
+impl CompositorHandler for State {
     fn scale_factor_changed(
         &mut self,
         _conn: &Connection,
@@ -218,8 +217,7 @@ impl DmabufHandler for State {
     }
 }
 
-impl LayerShellHandler for State
-{
+impl LayerShellHandler for State {
     fn closed(
         &mut self,
         _conn: &Connection,
@@ -246,19 +244,14 @@ impl LayerShellHandler for State
             self.compositor_connection_task
                 .request_visible_workspace(&bg_layer.output_name);
 
-            debug!(
-                "Configured layer on output: {}, new surface size {}x{}",
+            debug!("Configured layer on output: {}, new surface size {}x{}",
                 bg_layer.output_name,
-                configure.new_size.0, configure.new_size.1
-            );
-        }
-        else {
-            debug!(
-"Ignoring configure for already configured layer on output: {}, \
-new surface size {}x{}",
+                configure.new_size.0, configure.new_size.1);
+        } else {
+            debug!("Ignoring configure for already configured layer \
+                on output: {}, new surface size {}x{}",
                 bg_layer.output_name,
-                configure.new_size.0, configure.new_size.1
-            );
+                configure.new_size.0, configure.new_size.1);
         }
     }
 }
@@ -274,35 +267,29 @@ impl OutputHandler for State {
         qh: &QueueHandle<Self>,
         output: WlOutput,
     ) {
-        let Some(info) = self.output_state.info(&output)
-        else {
+        let Some(info) = self.output_state.info(&output) else {
             error!("New output has no output info, skipping");
-            return;
+            return
         };
 
-        let Some(output_name) = info.name
-        else {
+        let Some(output_name) = info.name else {
             error!("New output has no name, skipping");
-            return;
+            return
         };
 
         let Some((width, height)) = info.modes.iter()
             .find(|mode| mode.current)
             .map(|mode| mode.dimensions)
         else {
-            error!(
-                "New output '{}' has no current mode set, skipping",
-                output_name
-            );
-            return;
+            error!("New output {} has no current mode set, skipping",
+                output_name);
+            return
         };
 
         if !width.is_positive() || !height.is_positive() {
-            error!(
-            "New output '{}' has non-positive resolution: {} x {}, skipping",
-                output_name, width, height
-            );
-            return;
+            error!("New output {} has non-positive resolution: {} x {}, \
+                skipping", output_name, width, height);
+            return
         }
 
         let (width, height) = {
@@ -316,10 +303,8 @@ impl OutputHandler for State {
                 | Transform::Flipped90
                 | Transform::Flipped270 => (height, width),
                 _ => {
-                    warn!(
-                        "New output '{}' has unsupported transform",
-                        output_name
-                    );
+                    warn!("New output {} has unsupported transform",
+                        output_name);
                     (width, height)
                 }
             }
@@ -327,29 +312,21 @@ impl OutputHandler for State {
 
         let integer_scale_factor = info.scale_factor;
 
-        let Some((logical_width, logical_height)) = info.logical_size
-        else {
-            error!(
-                "New output '{}' has no logical_size, skipping",
-                output_name
-            );
-            return;
+        let Some((logical_width, logical_height)) = info.logical_size else {
+            error!("New output {} has no logical_size, skipping", output_name);
+            return
         };
 
         if !logical_width.is_positive() || !logical_height.is_positive() {
-            error!(
-            "New output '{}' has non-positive logical size: {} x {}, skipping",
-                output_name, logical_width, logical_height
-            );
-            return;
+            error!("New output {} has non-positive logical size: {} x {}, \
+                skipping", output_name, logical_width, logical_height);
+            return
         }
 
-        debug!(
-"New output, name: {}, resolution: {}x{}, integer scale factor: {}, \
-logical size: {}x{}, transform: {:?}",
+        debug!("New output, name: {}, resolution: {}x{}, integer scale \
+            factor: {}, logical size: {}x{}, transform: {:?}",
             output_name, width, height, integer_scale_factor,
-            logical_width, logical_height, info.transform
-        );
+            logical_width, logical_height, info.transform);
 
         let layer = self.layer_shell.create_layer_surface(
             qh,
@@ -374,7 +351,7 @@ logical size: {}x{}, transform: {:?}",
         match Region::new(&self.compositor_state) {
             Ok(region) => surface.set_input_region(Some(region.wl_region())),
             Err(error) => error!(
-                "Failed to create empty input region, on new output '{}': {}",
+                "Failed to create empty input region, on new output {}: {}",
                 output_name, error
             )
         };
@@ -382,16 +359,14 @@ logical size: {}x{}, transform: {:?}",
         let mut viewport = None;
 
         if width == logical_width || height == logical_height {
-            debug!("Output '{}' needs no scaling", output_name);
-        }
-        else if width == logical_width * integer_scale_factor
+            debug!("Output {} needs no scaling", output_name);
+        } else if width == logical_width * integer_scale_factor
             && height == logical_height * integer_scale_factor
         {
-            debug!("Output '{}' needs integer scaling", output_name);
+            debug!("Output {} needs integer scaling", output_name);
             surface.set_buffer_scale(integer_scale_factor);
-        }
-        else {
-            debug!("Output '{}' needs fractional scaling", output_name);
+        } else {
+            debug!("Output {} needs fractional scaling", output_name);
             let new_viewport = self.viewporter.get_viewport(surface, qh, ());
             new_viewport.set_destination(logical_width, logical_height);
             viewport = Some(new_viewport);
@@ -449,12 +424,7 @@ logical size: {}x{}, transform: {:?}",
             dmabuf_feedback,
         });
         if !is_dmabuf_feedback {
-            load_wallpapers(
-                self,
-                qh,
-                bg_layer_index,
-                gpu_uploader,
-            );
+            load_wallpapers(self, qh, bg_layer_index, gpu_uploader);
         }
     }
 
@@ -464,35 +434,29 @@ logical size: {}x{}, transform: {:?}",
         qh: &QueueHandle<Self>,
         output: WlOutput,
     ) {
-        let Some(info) = self.output_state.info(&output)
-        else {
+        let Some(info) = self.output_state.info(&output) else {
             error!("Updated output has no output info, skipping");
-            return;
+            return
         };
 
-        let Some(output_name) = info.name
-        else {
+        let Some(output_name) = info.name else {
             error!("Updated output has no name, skipping");
-            return;
+            return
         };
 
         let Some((width, height)) = info.modes.iter()
             .find(|mode| mode.current)
             .map(|mode| mode.dimensions)
         else {
-            error!(
-                "Updated output '{}' has no current mode set, skipping",
-                output_name
-            );
-            return;
+            error!("Updated output {} has no current mode set, skipping",
+                output_name);
+            return
         };
 
         if !width.is_positive() || !height.is_positive() {
-            error!(
-        "Updated output '{}' has non-positive resolution: {} x {}, skipping",
-                output_name, width, height
-            );
-            return;
+            error!("Updated output {} has non-positive resolution: {} x {}, \
+                skipping", output_name, width, height);
+            return
         }
 
         let (width, height) = {
@@ -506,10 +470,8 @@ logical size: {}x{}, transform: {:?}",
                 | Transform::Flipped90
                 | Transform::Flipped270 => (height, width),
                 _ => {
-                    warn!(
-                        "Updated output '{}' has unsupported transform",
-                        output_name
-                    );
+                    warn!("Updated output {} has unsupported transform",
+                        output_name);
                     (width, height)
                 }
             }
@@ -517,67 +479,55 @@ logical size: {}x{}, transform: {:?}",
 
         let integer_scale_factor = info.scale_factor;
 
-        let Some((logical_width, logical_height)) = info.logical_size
-        else {
-            error!(
-                "Updated output '{}' has no logical_size, skipping",
-                output_name
-            );
-            return;
+        let Some((logical_width, logical_height)) = info.logical_size else {
+            error!("Updated output {} has no logical_size, skipping",
+                output_name);
+            return
         };
 
         if !logical_width.is_positive() || !logical_height.is_positive() {
-            error!(
-        "Updated output '{}' has non-positive logical size: {} x {}, skipping",
-                output_name, logical_width, logical_height
-            );
-            return;
+            error!("Updated output {} has non-positive logical size: {} x {}, \
+                skipping", output_name, logical_width, logical_height);
+            return
         }
 
-        debug!(
-"Updated output, name: {}, resolution: {}x{}, integer scale factor: {}, \
-logical size: {}x{}, transform: {:?}",
+        debug!("Updated output, name: {}, resolution: {}x{}, integer scale \
+            factor: {}, logical size: {}x{}, transform: {:?}",
             output_name, width, height, integer_scale_factor,
-            logical_width, logical_height, info.transform
-        );
+            logical_width, logical_height, info.transform);
 
         let Some(bg_layer) = self.background_layers.iter_mut()
             .find(|bg_layers| bg_layers.output_name == output_name)
         else {
-            error!(
-                "Updated output '{}' has no background layer, skipping",
-                output_name
-            );
-            return;
+            error!("Updated output {} has no background layer, skipping",
+                output_name);
+            return
         };
 
         if bg_layer.width != width || bg_layer.height != height {
-            warn!(
-"Handling of output mode or transform changes are not yet implemented. \
-Restart multibg-sway or expect broken wallpapers or low quality due to scaling"
-            );
+            warn!("Handling of output mode or transform changes are not yet \
+                implemented. Restart multibg-sway or expect broken wallpapers \
+                or low quality due to scaling");
         }
 
         let surface = bg_layer.layer.wl_surface();
 
         if width == logical_width || height == logical_height {
-            debug!("Output '{}' needs no scaling", output_name);
+            debug!("Output {} needs no scaling", output_name);
             surface.set_buffer_scale(1);
             if let Some(old_viewport) = bg_layer.viewport.take() {
                 old_viewport.destroy();
             };
-        }
-        else if width == logical_width * integer_scale_factor
+        } else if width == logical_width * integer_scale_factor
             && height == logical_height * integer_scale_factor
         {
-            debug!("Output '{}' needs integer scaling", output_name);
+            debug!("Output {} needs integer scaling", output_name);
             surface.set_buffer_scale(integer_scale_factor);
             if let Some(old_viewport) = bg_layer.viewport.take() {
                 old_viewport.destroy();
             };
-        }
-        else {
-            debug!("Output '{}' needs fractional scaling", output_name);
+        } else {
+            debug!("Output {} needs fractional scaling", output_name);
             surface.set_buffer_scale(1);
             bg_layer.viewport
                 .get_or_insert_with(||
@@ -595,22 +545,17 @@ Restart multibg-sway or expect broken wallpapers or low quality due to scaling"
         _qh: &QueueHandle<Self>,
         output: WlOutput,
     ) {
-        let Some(info) = self.output_state.info(&output)
-        else {
+        let Some(info) = self.output_state.info(&output) else {
             error!("Destroyed output has no output info, skipping");
-            return;
+            return
         };
 
-        let Some(output_name) = info.name
-        else {
+        let Some(output_name) = info.name else {
             error!("Destroyed output has no name, skipping");
-            return;
+            return
         };
 
-        debug!(
-            "Output destroyed: {}",
-            output_name,
-        );
+        debug!("Output destroyed: {}", output_name);
 
         if let Some(bg_layer_index) = self.background_layers.iter()
             .position(|bg_layers| bg_layers.output_name == output_name)
@@ -631,10 +576,10 @@ Restart multibg-sway or expect broken wallpapers or low quality due to scaling"
             );
 
             drop(removed_bg_layer);
-        }
-        else {
+        } else {
             error!(
-    "Ignoring destroyed output with unknown name '{}', known outputs were: {}",
+                "Ignoring destroyed output with unknown name '{}', \
+                    known outputs were: {}",
                 output_name,
                 self.background_layers.iter()
                     .map(|bg_layer| bg_layer.output_name.as_str())
@@ -647,10 +592,11 @@ Restart multibg-sway or expect broken wallpapers or low quality due to scaling"
 }
 
 impl ProvidesRegistryState for State {
+    registry_handlers![OutputState];
+
     fn registry(&mut self) -> &mut RegistryState {
         &mut self.registry_state
     }
-    registry_handlers![OutputState];
 }
 
 impl ShmHandler for State {
@@ -735,16 +681,12 @@ pub struct BackgroundLayer {
     pub dmabuf_feedback: Option<ZwpLinuxDmabufFeedbackV1>,
 }
 
-impl BackgroundLayer
-{
-    pub fn draw_workspace_bg(&mut self, workspace_name: &str)
-    {
+impl BackgroundLayer {
+    pub fn draw_workspace_bg(&mut self, workspace_name: &str) {
         if !self.configured {
-            error!(
-"Cannot draw wallpaper image on the not yet configured layer for output: {}",
-                self.output_name
-            );
-            return;
+            error!("Cannot draw wallpaper image on the not yet configured \
+                layer for output: {}", self.output_name);
+            return
         }
 
         let Some(workspace_bg) = self.workspace_backgrounds.iter()
@@ -754,14 +696,15 @@ impl BackgroundLayer
             )
         else {
             error!(
-"There is no wallpaper image on output '{}' for workspace '{}', only for: {}",
+                "There is no wallpaper image on output {} for workspace {}, \
+                    only for: {}",
                 self.output_name,
                 workspace_name,
                 self.workspace_backgrounds.iter()
                     .map(|workspace_bg| workspace_bg.workspace_name.as_str())
                     .collect::<Vec<_>>().join(", ")
             );
-            return;
+            return
         };
         let wallpaper = &workspace_bg.wallpaper;
 
@@ -794,10 +737,8 @@ impl BackgroundLayer
         self.current_wallpaper = Some(Rc::clone(wallpaper));
         self.queued_wallpaper = None;
 
-        debug!(
-            "Setting wallpaper on output '{}' for workspace: {}",
-            self.output_name, workspace_name
-        );
+        debug!("Setting wallpaper on output {} for workspace: {}",
+            self.output_name, workspace_name);
     }
 }
 
@@ -850,7 +791,7 @@ impl Memory {
 
     fn dmabuf_params_destroy_eq(
         &mut self,
-        other_params: &ZwpLinuxBufferParamsV1
+        other_params: &ZwpLinuxBufferParamsV1,
     ) -> bool {
         if let Memory::Dmabuf { params: params_option, .. } = self {
             if let Some(params) = params_option {
@@ -955,12 +896,7 @@ fn fallback_shm_load_wallpapers(
     let bg_layer = &mut state.background_layers[bg_layer_index];
     bg_layer.dmabuf_feedback = None;
     bg_layer.workspace_backgrounds.clear();
-    load_wallpapers(
-        state,
-        qh,
-        bg_layer_index,
-        None,
-    );
+    load_wallpapers(state, qh, bg_layer_index, None);
 }
 
 fn load_wallpapers(
@@ -993,7 +929,7 @@ fn load_wallpapers(
             // https://github.com/gergo-salyi/multibg-sway/issues/6
             (width as usize * 3).next_multiple_of(4)
         },
-        _ => unreachable!()
+        _ => unreachable!(),
     };
     let shm_size = shm_stride * height as usize;
     let mut workspace_backgrounds = Vec::new();
@@ -1048,7 +984,7 @@ fn load_wallpapers(
                 width as usize * 4,
                 wl_shm::Format::Xrgb8888,
                 state.color_transform,
-                &mut resizer
+                &mut resizer,
             ) {
                 error!("Failed to load wallpaper: {e:#}");
                 error_count += 1;
@@ -1095,7 +1031,7 @@ fn load_wallpapers(
             shm_stride,
             state.shm_format,
             state.color_transform,
-            &mut resizer
+            &mut resizer,
         ) {
             error!("Failed to load wallpaper: {e:#}");
             error_count += 1;
@@ -1108,7 +1044,7 @@ fn load_wallpapers(
             shm_stride.try_into().unwrap(),
             state.shm_format,
             (),
-            qh
+            qh,
         );
         workspace_backgrounds.push(WorkspaceBackground {
             workspace_name: wallpaper_file.workspace,
@@ -1208,12 +1144,7 @@ fn handle_dmabuf_feedback(
         debug!("DMA-BUF feedback changed, reloading wallpapers");
         bg_layer.workspace_backgrounds.clear();
     }
-    load_wallpapers(
-        state,
-        qh,
-        bg_layer_pos,
-        Some(gpu_uploader),
-    );
+    load_wallpapers(state, qh, bg_layer_pos, Some(gpu_uploader));
     Ok(())
 }
 

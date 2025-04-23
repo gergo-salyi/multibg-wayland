@@ -33,16 +33,15 @@ impl Compositor {
                 debug!("Selecting compositor Sway based on {xdg_desktop_var}");
                 Some(Compositor::Sway)
             } else if xdg_desktop.as_bytes().starts_with(b"Hyprland") {
-                debug!("Selecting compositor Hyprland based on {xdg_desktop_var}");
+                debug!("Selecting compositor Hyprland based on {}",
+                    xdg_desktop_var);
                 Some(Compositor::Hyprland)
             } else if xdg_desktop.as_bytes().starts_with(b"niri") {
                 debug!("Selecting compositor Niri based on {xdg_desktop_var}");
                 Some(Compositor::Niri)
             } else {
-                warn!(
-                    "Unrecognized compositor from {xdg_desktop_var} \
-                    environment variable: {xdg_desktop:?}"
-                );
+                warn!("Unrecognized compositor from {xdg_desktop_var} \
+                    environment variable: {xdg_desktop:?}");
                 None
             }
         } else {
@@ -107,7 +106,11 @@ pub struct ConnectionTask {
 }
 
 impl ConnectionTask {
-    pub fn new(composer: Compositor, tx: Sender<WorkspaceVisible>, waker: Arc<Waker>) -> Self {
+    pub fn new(
+        composer: Compositor,
+        tx: Sender<WorkspaceVisible>,
+        waker: Arc<Waker>,
+    ) -> Self {
         let interface: Box<dyn CompositorInterface> = match composer {
             Compositor::Sway => Box::new(sway::SwayConnectionTask::new()),
             Compositor::Hyprland => Box::new(
@@ -135,7 +138,8 @@ impl ConnectionTask {
                 composer_interface.subscribe_event_loop(event_sender);
             }
             Compositor::Hyprland => {
-                let composer_interface = hyprland::HyprlandConnectionTask::new();
+                let composer_interface =
+                    hyprland::HyprlandConnectionTask::new();
                 composer_interface.subscribe_event_loop(event_sender);
             }
             Compositor::Niri => {
@@ -164,7 +168,9 @@ impl ConnectionTask {
     }
 
     pub fn request_visible_workspaces(&mut self) {
-        for workspace in self.interface.request_visible_workspaces().into_iter() {
+        for workspace in self.interface
+            .request_visible_workspaces().into_iter()
+        {
             self.tx
                 .send(WorkspaceVisible {
                     output: workspace.output,

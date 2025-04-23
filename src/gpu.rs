@@ -16,11 +16,7 @@ use std::{
 use anyhow::Context;
 use ash::{
     Device, Entry, Instance,
-    ext::{
-        debug_report,
-        debug_utils,
-        image_drm_format_modifier,
-    },
+    ext::{debug_report, debug_utils, image_drm_format_modifier},
     khr::external_memory_fd,
     vk::{
         Buffer,
@@ -82,7 +78,7 @@ impl Gpu {
 
     fn select_device(
         &mut self,
-        dmabuf_drm_dev: Option<Dev>
+        dmabuf_drm_dev: Option<Dev>,
     ) -> Option<Rc<GpuDevice>> {
         let mut ret = None;
         self.devices.retain(|weak_gpu_device| {
@@ -254,7 +250,7 @@ impl GpuMemory {
     pub fn dmabuf_feedback_eq(
         &self,
         dmabuf_drm_dev: Option<Dev>,
-        drm_format_modifiers: &[u64]
+        drm_format_modifiers: &[u64],
     ) -> bool {
         self.gpu_device.dmabuf_drm_dev_eq(dmabuf_drm_dev)
             && drm_format_modifiers.contains(&self.drm_format_modifier)

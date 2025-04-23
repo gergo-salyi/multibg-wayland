@@ -135,7 +135,7 @@ unsafe fn sigaction_set_handler(
     signum: c_int,
     handler: extern "C" fn(c_int),
     mask: sigset_t,
-    flags: c_int
+    flags: c_int,
 ) -> io::Result<()> {
     unsafe {
         if sigaction(

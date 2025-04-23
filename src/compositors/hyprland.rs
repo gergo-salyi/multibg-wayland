@@ -10,7 +10,7 @@ use std::{
 use log::debug;
 use serde::Deserialize;
 
-use super::{CompositorInterface, WorkspaceVisible, EventSender};
+use super::{CompositorInterface, EventSender, WorkspaceVisible};
 
 pub struct HyprlandConnectionTask {}
 

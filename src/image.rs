@@ -30,7 +30,7 @@ pub struct WallpaperFile {
 }
 
 pub fn output_wallpaper_files(
-    output_dir: &Path
+    output_dir: &Path,
 ) -> anyhow::Result<Vec<WallpaperFile>> {
     let dir = read_dir(output_dir).context("Failed to read directory")?;
     let mut ret = Vec::new();
@@ -197,9 +197,8 @@ fn copy_pad_stride(
     height: usize,
 ) {
     for row in 0..height {
-        dst[row * dst_stride..][..src_stride].copy_from_slice(
-            &src[row * src_stride..][..src_stride]
-        );
+        dst[row * dst_stride..][..src_stride]
+            .copy_from_slice(&src[row * src_stride..][..src_stride]);
     }
 }
 
@@ -210,8 +209,7 @@ fn swizzle_bgra_from_rgb(src: &[u8], dst: &mut [u8]) {
     unsafe {
         #[cfg(target_arch = "x86_64")]
         if is_x86_feature_detected!("avx2") {
-            bgra_from_rgb_avx2(src, dst, pixel_count);
-            return
+            return bgra_from_rgb_avx2(src, dst, pixel_count)
         }
         bgra_from_rgb(src, dst, pixel_count)
     }

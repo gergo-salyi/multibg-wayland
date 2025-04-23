@@ -1,5 +1,5 @@
 use std::{
-    ffi::{CStr, c_char},
+    ffi::{c_char, CStr},
     rc::Rc,
 };
 
@@ -12,11 +12,7 @@ use ash::{
         physical_device_drm,
         queue_family_foreign,
     },
-    khr::{
-        driver_properties,
-        external_memory_fd,
-        image_format_list,
-    },
+    khr::{driver_properties, external_memory_fd, image_format_list},
     vk::{
         self,
         api_version_variant,

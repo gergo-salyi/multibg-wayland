@@ -1,4 +1,4 @@
-use super::{CompositorInterface, WorkspaceVisible, EventSender};
+use super::{CompositorInterface, EventSender, WorkspaceVisible};
 use swayipc::{Connection, Event, EventType, WorkspaceChange};
 
 pub struct SwayConnectionTask {
@@ -8,7 +8,9 @@ pub struct SwayConnectionTask {
 impl SwayConnectionTask {
     pub fn new() -> Self {
         SwayConnectionTask {
-            sway_conn: Connection::new().expect("Failed to connect to sway socket. If you're not using sway, pass the correct --compositor argument. Original cause"),
+            sway_conn: Connection::new().expect("Failed to connect to sway \
+                socket. If you're not using sway, pass the correct \
+                --compositor argument. Original cause"),
         }
     }
 }
@@ -28,7 +30,8 @@ impl CompositorInterface for SwayConnectionTask {
     }
 
     fn subscribe_event_loop(self, event_sender: EventSender) {
-        let event_stream = self.sway_conn.subscribe([EventType::Workspace]).unwrap();
+        let event_stream = self.sway_conn
+            .subscribe([EventType::Workspace]).unwrap();
         for event_result in event_stream {
             let event = event_result.unwrap();
             let Event::Workspace(workspace_event) = event else {

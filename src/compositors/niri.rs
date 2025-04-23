@@ -3,7 +3,7 @@ use std::io;
 use log::debug;
 use niri_ipc::{socket::Socket, Event, Request, Response, Workspace};
 
-use super::{CompositorInterface, WorkspaceVisible, EventSender};
+use super::{CompositorInterface, EventSender, WorkspaceVisible};
 
 pub struct NiriConnectionTask {}
 

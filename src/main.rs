@@ -1,5 +1,5 @@
-mod compositors;
 mod cli;
+mod compositors;
 mod gpu;
 mod image;
 mod poll;
@@ -42,8 +42,8 @@ use smithay_client_toolkit::reexports::protocols
 use crate::{
     cli::{Cli, PixelFormat},
     compositors::{Compositor, ConnectionTask, WorkspaceVisible},
-    image::ColorTransform,
     gpu::Gpu,
+    image::ColorTransform,
     poll::{Poll, Waker},
     signal::SignalPipe,
     wayland::BackgroundLayer,
@@ -160,8 +160,7 @@ fn run() -> anyhow::Result<()> {
         shm_format,
         background_layers: Vec::new(),
         compositor_connection_task: ConnectionTask::new(
-            compositor,
-            tx.clone(), Arc::clone(&waker)
+            compositor, tx.clone(), Arc::clone(&waker)
         ),
         color_transform,
         dmabuf_state,
@@ -240,7 +239,7 @@ fn flush_blocking(event_queue: &EventQueue<State>) {
 
 fn ensure_prepare_read(
     state: &mut State,
-    event_queue: &mut EventQueue<State>
+    event_queue: &mut EventQueue<State>,
 ) -> ReadEventsGuard {
     loop {
         if let Some(guard) = event_queue.prepare_read() { return guard }
@@ -263,24 +262,23 @@ fn handle_sway_event(
     state: &mut State,
     rx: &Receiver<WorkspaceVisible>,
 ) {
-    while let Ok(workspace) = rx.try_recv()
-    {
+    while let Ok(workspace) = rx.try_recv() {
         // Find the background layer that of the output where the workspace is
         if let Some(affected_bg_layer) = state.background_layers.iter_mut()
             .find(|bg_layer| bg_layer.output_name == workspace.output)
         {
             affected_bg_layer.draw_workspace_bg(&workspace.workspace_name);
-        }
-        else {
+        } else {
             error!(
-        "Workspace '{}' is on an unknown output '{}', known outputs were: {}",
+                "Workspace '{}' is on an unknown output '{}', \
+                    known outputs were: {}",
                 workspace.workspace_name,
                 workspace.output,
                 state.background_layers.iter()
                     .map(|bg_layer| bg_layer.output_name.as_str())
                     .collect::<Vec<_>>().join(", ")
             );
-            continue;
+            continue
         };
     }
 }
