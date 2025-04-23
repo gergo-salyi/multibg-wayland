@@ -6,7 +6,7 @@ use std::{
     env,
     os::unix::ffi::OsStrExt,
     sync::{mpsc::Sender, Arc},
-    thread::spawn,
+    thread,
 };
 
 use log::{debug, warn};
@@ -132,21 +132,24 @@ impl ConnectionTask {
         waker: Arc<Waker>,
     ) {
         let event_sender = EventSender::new(tx, waker);
-        spawn(move || match composer {
-            Compositor::Sway => {
-                let composer_interface = sway::SwayConnectionTask::new();
-                composer_interface.subscribe_event_loop(event_sender);
-            }
-            Compositor::Hyprland => {
-                let composer_interface =
-                    hyprland::HyprlandConnectionTask::new();
-                composer_interface.subscribe_event_loop(event_sender);
-            }
-            Compositor::Niri => {
-                let composer_interface = niri::NiriConnectionTask::new();
-                composer_interface.subscribe_event_loop(event_sender);
-            }
-        });
+        thread::Builder::new()
+            .name("compositor".to_string())
+            .spawn(move || match composer {
+                Compositor::Sway => {
+                    let composer_interface = sway::SwayConnectionTask::new();
+                    composer_interface.subscribe_event_loop(event_sender);
+                }
+                Compositor::Hyprland => {
+                    let composer_interface =
+                        hyprland::HyprlandConnectionTask::new();
+                    composer_interface.subscribe_event_loop(event_sender);
+                }
+                Compositor::Niri => {
+                    let composer_interface = niri::NiriConnectionTask::new();
+                    composer_interface.subscribe_event_loop(event_sender);
+                }
+            })
+            .unwrap();
     }
 
     pub fn request_visible_workspace(&mut self, output: &str) {
