@@ -90,7 +90,7 @@ Reports on any problems are appreciated, look for an existing or open a new issu
 
 Please include a verbose log from you terminal by running with `RUST_BACKTRACE=1` and `RUST_LOG=trace` environment variables set, such as
 
-    $ RUST_BACKTRACE=1 RUST_LOG=trace multibg-sway ~/my_wallpapers
+    $ RUST_BACKTRACE=1 RUST_LOG=info,multibg_sway=trace multibg-sway ~/my_wallpapers
 
 ## Alternatives
 
