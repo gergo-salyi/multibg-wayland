@@ -253,9 +253,20 @@ fn handle_wayland_event(
     event_queue: &mut EventQueue<State>,
     read_guard: ReadEventsGuard,
 ) {
-    read_guard.read().expect("Failed to read Wayland events");
-    event_queue.dispatch_pending(state)
-        .expect("Failed to dispatch pending Wayland events");
+    match read_guard.read() {
+        Ok(_) => {
+            event_queue.dispatch_pending(state)
+                .expect("Failed to dispatch pending Wayland events");
+        },
+        Err(error) => {
+            if let WaylandError::Io(io_error) = &error {
+                if io_error.kind() == io::ErrorKind::WouldBlock {
+                    return
+                }
+            }
+            panic!("Failed to read Wayland events: {error}");
+        }
+    }
 }
 
 fn handle_sway_event(
