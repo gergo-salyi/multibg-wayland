@@ -101,6 +101,39 @@ pub unsafe fn uploader(
         }
     } else if drm_format_modifiers.contains(&DRM_FORMAT_MOD_LINEAR) {
         debug!("Image creation can only use DRM_FORMAT_MOD_LINEAR");
+        let image_format_props = instance
+            .get_physical_device_image_format_properties(
+                physdev,
+                Format::B8G8R8A8_SRGB,
+                ImageType::TYPE_2D,
+                ImageTiling::LINEAR,
+                ImageUsageFlags::TRANSFER_DST,
+                ImageCreateFlags::empty(),
+            )
+            .context("Failed to get image format properties")?;
+        if image_format_props.max_extent.depth < 1
+            || image_format_props.max_mip_levels < 1
+            || image_format_props.max_array_layers < 1
+            || !image_format_props.sample_counts
+                .contains(SampleCountFlags::TYPE_1)
+        {
+            bail!("The needed image format is unsupported")
+        }
+        let max_width = image_format_props.max_extent.width;
+        let max_height = image_format_props.max_extent.height;
+        let max_size = image_format_props.max_resource_size;
+        if width > max_width {
+            bail!("Needed image width {width} is greter than the max \
+                supported image width {max_width}")
+        }
+        if height > max_height {
+            bail!("Needed image height {height} is greter than the max \
+                supported image height {max_height}")
+        }
+        if size > max_size {
+            bail!("Needed image size {size} bytes is greter than the max \
+                supported image size {max_width} bytes")
+        }
     } else {
         bail!("VK_EXT_physical_device_drm unavailable and \
             no DRM_FORMAT_MOD_LINEAR was proposed for image creation");
@@ -200,18 +233,18 @@ unsafe fn filter_modifier(
         bail!("The needed image format is unsupported for this modifier")
     }
     let max_width = image_format_props.max_extent.width;
-    let max_height = image_format_props.max_extent.width;
+    let max_height = image_format_props.max_extent.height;
     let max_size = image_format_props.max_resource_size;
     if width > max_width {
-        bail!("Needed image width {width} is greter then the max supported \
+        bail!("Needed image width {width} is greter than the max supported \
             image width {max_width}")
     }
     if height > max_height {
-        bail!("Needed image height {height} is greter then the max supported \
+        bail!("Needed image height {height} is greter than the max supported \
             image height {max_height}")
     }
     if size > max_size {
-        bail!("Needed image size {size} bytes is greter then the max supported \
+        bail!("Needed image size {size} bytes is greter than the max supported \
             image size {max_width} bytes")
     }
     Ok(())
