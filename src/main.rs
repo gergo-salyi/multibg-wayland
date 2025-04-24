@@ -13,7 +13,8 @@ use std::{
     sync::{
         Arc,
         mpsc::{channel, Receiver},
-    }
+    },
+    rc::Rc,
 };
 
 use clap::Parser;
@@ -50,6 +51,7 @@ use crate::{
 };
 
 pub struct State {
+    pub connection: Rc<Connection>,
     pub compositor_state: CompositorState,
     pub registry_state: RegistryState,
     pub output_state: OutputState,
@@ -95,7 +97,7 @@ fn run() -> anyhow::Result<()> {
     //     Initialize wayland client
     // ********************************
 
-    let conn = Connection::connect_to_env().unwrap();
+    let conn = Rc::new(Connection::connect_to_env().unwrap());
     let (globals, mut event_queue) = registry_queue_init(&conn).unwrap();
     let qh = event_queue.handle();
 
@@ -150,6 +152,7 @@ fn run() -> anyhow::Result<()> {
         .unwrap_or(Compositor::Sway);
 
     let mut state = State {
+        connection: Rc::clone(&conn),
         compositor_state,
         registry_state,
         output_state: OutputState::new(&globals, &qh),
@@ -185,7 +188,7 @@ fn run() -> anyhow::Result<()> {
     let token_signal = signal_pipe.as_ref().map(|pipe| poll.add_readable(pipe));
 
     loop {
-        flush_blocking(&event_queue);
+        flush_blocking(&conn);
         let read_guard = ensure_prepare_read(&mut state, &mut event_queue);
         poll.poll().expect("Main event loop poll failed");
         if poll.ready(token_wayland) {
@@ -218,15 +221,15 @@ fn run() -> anyhow::Result<()> {
     }
 }
 
-fn flush_blocking(event_queue: &EventQueue<State>) {
+fn flush_blocking(connection: &Connection) {
     loop {
-        let result = event_queue.flush();
+        let result = connection.flush();
         if result.is_ok() { return }
         if let Err(WaylandError::Io(io_error)) = &result {
             if io_error.kind() == io::ErrorKind::WouldBlock {
                 warn!("Wayland flush needs to block");
                 let mut poll_fds = [PollFd::from_borrowed_fd(
-                    event_queue.as_fd(),
+                    connection.as_fd(),
                     PollFlags::OUT,
                 )];
                 retry_on_intr(|| poll(&mut poll_fds, -1)).unwrap();

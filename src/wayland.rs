@@ -49,13 +49,15 @@ use smithay_client_toolkit::reexports::protocols::wp::{
 };
 
 use crate::{
-    State,
+    flush_blocking, State,
     gpu::{
         DRM_FORMAT_XRGB8888, fmt_modifier,
         GpuMemory, GpuUploader, GpuWallpaper,
     },
     image::{load_wallpaper, output_wallpaper_files, WallpaperFile},
 };
+
+const MAX_FDS_OUT: usize = 28;
 
 impl CompositorHandler for State {
     fn scale_factor_changed(
@@ -937,6 +939,8 @@ fn load_wallpapers(
     let mut reused_count = 0usize;
     let mut loaded_count = 0usize;
     let mut error_count = 0usize;
+    flush_blocking(&state.connection);
+    let mut fds_need_flush = 0usize;
     for wallpaper_file in wallpaper_files {
         if log::log_enabled!(log::Level::Debug) {
             if wallpaper_file.path == wallpaper_file.canon_path {
@@ -992,6 +996,12 @@ fn load_wallpapers(
             }
             match uploader.upload() {
                 Ok(gpu_wallpaper) => {
+                    let fds_count = gpu_wallpaper.memory_planes_len;
+                    if fds_need_flush + fds_count > MAX_FDS_OUT {
+                        flush_blocking(&state.connection);
+                        fds_need_flush = 0;
+                    }
+                    fds_need_flush += fds_count;
                     let wallpaper = wallpaper_dmabuf(
                         &state.dmabuf_state,
                         qh,
@@ -1015,6 +1025,11 @@ fn load_wallpapers(
                 }
             }
         }
+        if fds_need_flush + 1 > MAX_FDS_OUT {
+            flush_blocking(&state.connection);
+            fds_need_flush = 0;
+        }
+        fds_need_flush += 1;
         let mut shm_pool = match RawPool::new(shm_size, &state.shm) {
             Ok(shm_pool) => shm_pool,
             Err(e) => {
@@ -1058,8 +1073,11 @@ fn load_wallpapers(
         });
         loaded_count += 1;
     }
-    debug!("Wallpapers for new output: {} reused, {} loaded, {} errors",
-        reused_count, loaded_count, error_count);
+    if fds_need_flush > 0 {
+        flush_blocking(&state.connection);
+    }
+    debug!("Wallpapers for new output: {} loaded, {} reused, {} errors",
+        loaded_count, reused_count, error_count);
     debug!("Wallpapers are available for workspaces: {}",
         workspace_backgrounds.iter()
             .map(|bg| bg.workspace_name.as_str())
