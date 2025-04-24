@@ -923,7 +923,8 @@ fn load_wallpapers(
             return
         }
     };
-    let shm_stride = match state.shm_format {
+    let shm_format = state.shm_format();
+    let shm_stride = match shm_format {
         wl_shm::Format::Xrgb8888 => width as usize * 4,
         wl_shm::Format::Bgr888 => {
             // Align buffer stride to both 4 and pixel format
@@ -1044,7 +1045,7 @@ fn load_wallpapers(
             width as u32,
             height as u32,
             shm_stride,
-            state.shm_format,
+            shm_format,
             state.color_transform,
             &mut resizer,
         ) {
@@ -1057,7 +1058,7 @@ fn load_wallpapers(
             width,
             height,
             shm_stride.try_into().unwrap(),
-            state.shm_format,
+            shm_format,
             (),
             qh,
         );

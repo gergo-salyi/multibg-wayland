@@ -59,12 +59,27 @@ pub struct State {
     pub layer_shell: LayerShell,
     pub viewporter: WpViewporter,
     pub wallpaper_dir: PathBuf,
-    pub shm_format: wl_shm::Format,
+    pub shm_format: Option<wl_shm::Format>,
     pub background_layers: Vec<BackgroundLayer>,
     pub compositor_connection_task: ConnectionTask,
     pub color_transform: ColorTransform,
     pub dmabuf_state: DmabufState,
     pub gpu: Option<Gpu>,
+}
+
+impl State {
+    fn shm_format(&mut self) -> wl_shm::Format {
+        *self.shm_format.get_or_insert_with(|| {
+            let mut format = wl_shm::Format::Xrgb8888;
+            // Consume less gpu memory by using Bgr888 if available,
+            // fall back to the always supported Xrgb8888 otherwise
+            if self.shm.formats().contains(&wl_shm::Format::Bgr888) {
+                format = wl_shm::Format::Bgr888
+            }
+            debug!("Using shm format: {format:?}");
+            format
+        })
+    }
 }
 
 fn main() -> Result<(), ()> {
@@ -104,15 +119,12 @@ fn run() -> anyhow::Result<()> {
     let compositor_state = CompositorState::bind(&globals, &qh).unwrap();
     let layer_shell = LayerShell::bind(&globals, &qh).unwrap();
     let shm = Shm::bind(&globals, &qh).unwrap();
-    let mut shm_format = wl_shm::Format::Xrgb8888;
-    if cli.pixelformat != Some(PixelFormat::Baseline) {
-        // Consume less gpu memory by using Bgr888 if available,
-        // fall back to the always supported Xrgb8888 otherwise
-        if shm.formats().contains(&wl_shm::Format::Bgr888) {
-            shm_format = wl_shm::Format::Bgr888;
-        }
-    }
-    debug!("Using shm format: {shm_format:?}");
+    let shm_format = if cli.pixelformat == Some(PixelFormat::Baseline) {
+        debug!("Using shm format: {:?}", wl_shm::Format::Xrgb8888);
+        Some(wl_shm::Format::Xrgb8888)
+    } else {
+        None
+    };
 
     let registry_state = RegistryState::new(&globals);
 
