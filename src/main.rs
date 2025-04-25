@@ -50,21 +50,21 @@ use crate::{
     wayland::BackgroundLayer,
 };
 
-pub struct State {
-    pub connection: Rc<Connection>,
-    pub compositor_state: CompositorState,
-    pub registry_state: RegistryState,
-    pub output_state: OutputState,
-    pub shm: Shm,
-    pub layer_shell: LayerShell,
-    pub viewporter: WpViewporter,
-    pub wallpaper_dir: PathBuf,
-    pub shm_format: Option<wl_shm::Format>,
-    pub background_layers: Vec<BackgroundLayer>,
-    pub compositor_connection_task: ConnectionTask,
-    pub color_transform: ColorTransform,
-    pub dmabuf_state: DmabufState,
-    pub gpu: Option<Gpu>,
+struct State {
+    connection: Rc<Connection>,
+    compositor_state: CompositorState,
+    registry_state: RegistryState,
+    output_state: OutputState,
+    shm: Shm,
+    layer_shell: LayerShell,
+    viewporter: WpViewporter,
+    wallpaper_dir: PathBuf,
+    shm_format: Option<wl_shm::Format>,
+    background_layers: Vec<BackgroundLayer>,
+    compositor_connection_task: ConnectionTask,
+    color_transform: ColorTransform,
+    dmabuf_state: DmabufState,
+    gpu: Option<Gpu>,
 }
 
 impl State {

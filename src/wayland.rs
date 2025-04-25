@@ -59,6 +59,145 @@ use crate::{
 
 const MAX_FDS_OUT: usize = 28;
 
+pub struct BackgroundLayer {
+    pub output_name: String,
+    width: i32,
+    height: i32,
+    layer: LayerSurface,
+    configured: bool,
+    workspace_backgrounds: Vec<WorkspaceBackground>,
+    current_wallpaper: Option<Rc<RefCell<Wallpaper>>>,
+    queued_wallpaper: Option<Weak<RefCell<Wallpaper>>>,
+    transform: Transform,
+    viewport: Option<WpViewport>,
+    dmabuf_feedback: Option<ZwpLinuxDmabufFeedbackV1>,
+}
+
+impl BackgroundLayer {
+    pub fn draw_workspace_bg(&mut self, workspace_name: &str) {
+        if !self.configured {
+            error!("Cannot draw wallpaper image on the not yet configured \
+                layer for output: {}", self.output_name);
+            return
+        }
+
+        let Some(workspace_bg) = self.workspace_backgrounds.iter()
+            .find(|workspace_bg| workspace_bg.workspace_name == workspace_name)
+            .or_else(|| self.workspace_backgrounds.iter()
+                .find(|workspace_bg| workspace_bg.workspace_name == "_default")
+            )
+        else {
+            error!(
+                "There is no wallpaper image on output {} for workspace {}, \
+                    only for: {}",
+                self.output_name,
+                workspace_name,
+                self.workspace_backgrounds.iter()
+                    .map(|workspace_bg| workspace_bg.workspace_name.as_str())
+                    .collect::<Vec<_>>().join(", ")
+            );
+            return
+        };
+        let wallpaper = &workspace_bg.wallpaper;
+
+        if let Some(current) = &self.current_wallpaper {
+            if Rc::ptr_eq(current, wallpaper) {
+                debug!("Skipping draw on output {} for workspace {} \
+                    because its wallpaper is already set",
+                    self.output_name, workspace_name);
+                return
+            }
+        }
+
+        let mut wallpaper_borrow = wallpaper.borrow_mut();
+        let Some(wl_buffer) = wallpaper_borrow.wl_buffer.as_ref() else {
+            debug!("Wallpaper for output {} workspace {} is not ready yet",
+                self.output_name, workspace_name);
+            self.queued_wallpaper = Some(Rc::downgrade(wallpaper));
+            return
+        };
+
+        // Attach and commit to new workspace background
+        self.layer.attach(Some(wl_buffer), 0, 0);
+        wallpaper_borrow.active_count += 1;
+
+        // Damage the entire surface
+        self.layer.wl_surface().damage_buffer(0, 0, self.width, self.height);
+
+        self.layer.commit();
+
+        self.current_wallpaper = Some(Rc::clone(wallpaper));
+        self.queued_wallpaper = None;
+
+        debug!("Setting wallpaper on output {} for workspace: {}",
+            self.output_name, workspace_name);
+    }
+}
+
+struct WorkspaceBackground {
+    workspace_name: String,
+    wallpaper: Rc<RefCell<Wallpaper>>,
+}
+
+struct Wallpaper {
+    wl_buffer: Option<WlBuffer>,
+    active_count: usize,
+    memory: Memory,
+    canon_path: PathBuf,
+    canon_modified: u128,
+}
+
+impl Drop for Wallpaper {
+    fn drop(&mut self) {
+        if let Some(wl_buffer) = &self.wl_buffer {
+            if self.active_count != 0 {
+                warn!("Destroying a {} times active wl_buffer of \
+                    wallpaper {:?}", self.active_count, self.canon_path);
+            }
+            wl_buffer.destroy();
+        }
+    }
+}
+
+enum Memory {
+    WlShm { pool: RawPool },
+    Dmabuf { gpu_memory: GpuMemory, params: Option<ZwpLinuxBufferParamsV1> },
+}
+
+impl Memory {
+    fn gpu_uploader_eq(&self, gpu_uploader: Option<&GpuUploader>) -> bool {
+        if let Some(gpu_uploader) = gpu_uploader {
+            match self {
+                Memory::WlShm { .. } => false,
+                Memory::Dmabuf { gpu_memory, .. } => {
+                    gpu_memory.gpu_uploader_eq(gpu_uploader)
+                },
+            }
+        } else {
+            match self {
+                Memory::WlShm { .. } => true,
+                Memory::Dmabuf { .. } => false,
+            }
+        }
+    }
+
+    fn dmabuf_params_destroy_eq(
+        &mut self,
+        other_params: &ZwpLinuxBufferParamsV1,
+    ) -> bool {
+        if let Memory::Dmabuf { params: params_option, .. } = self {
+            if let Some(params) = params_option {
+                if params == other_params {
+                    params.destroy();
+                    *params_option = None;
+                    return true
+                }
+            }
+        }
+        false
+    }
+}
+
 impl CompositorHandler for State {
     fn scale_factor_changed(
         &mut self,
@@ -666,145 +805,6 @@ impl Dispatch<WlBuffer, ()> for State {
             }
         }
         warn!("Release event for already destroyed wl_shm wl_buffer");
-    }
-}
-
-pub struct BackgroundLayer {
-    pub output_name: String,
-    pub width: i32,
-    pub height: i32,
-    pub layer: LayerSurface,
-    pub configured: bool,
-    pub workspace_backgrounds: Vec<WorkspaceBackground>,
-    pub current_wallpaper: Option<Rc<RefCell<Wallpaper>>>,
-    pub queued_wallpaper: Option<Weak<RefCell<Wallpaper>>>,
-    pub transform: Transform,
-    pub viewport: Option<WpViewport>,
-    pub dmabuf_feedback: Option<ZwpLinuxDmabufFeedbackV1>,
-}
-
-impl BackgroundLayer {
-    pub fn draw_workspace_bg(&mut self, workspace_name: &str) {
-        if !self.configured {
-            error!("Cannot draw wallpaper image on the not yet configured \
-                layer for output: {}", self.output_name);
-            return
-        }
-
-        let Some(workspace_bg) = self.workspace_backgrounds.iter()
-            .find(|workspace_bg| workspace_bg.workspace_name == workspace_name)
-            .or_else(|| self.workspace_backgrounds.iter()
-                .find(|workspace_bg| workspace_bg.workspace_name == "_default")
-            )
-        else {
-            error!(
-                "There is no wallpaper image on output {} for workspace {}, \
-                    only for: {}",
-                self.output_name,
-                workspace_name,
-                self.workspace_backgrounds.iter()
-                    .map(|workspace_bg| workspace_bg.workspace_name.as_str())
-                    .collect::<Vec<_>>().join(", ")
-            );
-            return
-        };
-        let wallpaper = &workspace_bg.wallpaper;
-
-        if let Some(current) = &self.current_wallpaper {
-            if Rc::ptr_eq(current, wallpaper) {
-                debug!("Skipping draw on output {} for workspace {} \
-                    because its wallpaper is already set",
-                    self.output_name, workspace_name);
-                return
-            }
-        }
-
-        let mut wallpaper_borrow = wallpaper.borrow_mut();
-        let Some(wl_buffer) = wallpaper_borrow.wl_buffer.as_ref() else {
-            debug!("Wallpaper for output {} workspace {} is not ready yet",
-                self.output_name, workspace_name);
-            self.queued_wallpaper = Some(Rc::downgrade(wallpaper));
-            return
-        };
-
-        // Attach and commit to new workspace background
-        self.layer.attach(Some(wl_buffer), 0, 0);
-        wallpaper_borrow.active_count += 1;
-
-        // Damage the entire surface
-        self.layer.wl_surface().damage_buffer(0, 0, self.width, self.height);
-
-        self.layer.commit();
-
-        self.current_wallpaper = Some(Rc::clone(wallpaper));
-        self.queued_wallpaper = None;
-
-        debug!("Setting wallpaper on output {} for workspace: {}",
-            self.output_name, workspace_name);
-    }
-}
-
-pub struct WorkspaceBackground {
-    pub workspace_name: String,
-    pub wallpaper: Rc<RefCell<Wallpaper>>,
-}
-
-pub struct Wallpaper {
-    pub wl_buffer: Option<WlBuffer>,
-    pub active_count: usize,
-    pub memory: Memory,
-    pub canon_path: PathBuf,
-    pub canon_modified: u128,
-}
-
-impl Drop for Wallpaper {
-    fn drop(&mut self) {
-        if let Some(wl_buffer) = &self.wl_buffer {
-            if self.active_count != 0 {
-                warn!("Destroying a {} times active wl_buffer of \
-                    wallpaper {:?}", self.active_count, self.canon_path);
-            }
-            wl_buffer.destroy();
-        }
-    }
-}
-
-pub enum Memory {
-    WlShm { pool: RawPool },
-    Dmabuf { gpu_memory: GpuMemory, params: Option<ZwpLinuxBufferParamsV1> },
-}
-
-impl Memory {
-    fn gpu_uploader_eq(&self, gpu_uploader: Option<&GpuUploader>) -> bool {
-        if let Some(gpu_uploader) = gpu_uploader {
-            match self {
-                Memory::WlShm { .. } => false,
-                Memory::Dmabuf { gpu_memory, .. } => {
-                    gpu_memory.gpu_uploader_eq(gpu_uploader)
-                },
-            }
-        } else {
-            match self {
-                Memory::WlShm { .. } => true,
-                Memory::Dmabuf { .. } => false,
-            }
-        }
-    }
-
-    fn dmabuf_params_destroy_eq(
-        &mut self,
-        other_params: &ZwpLinuxBufferParamsV1,
-    ) -> bool {
-        if let Memory::Dmabuf { params: params_option, .. } = self {
-            if let Some(params) = params_option {
-                if params == other_params {
-                    params.destroy();
-                    *params_option = None;
-                    return true
-                }
-            }
-        }
-        false
     }
 }
 
