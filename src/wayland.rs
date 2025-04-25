@@ -73,6 +73,17 @@ pub struct BackgroundLayer {
     dmabuf_feedback: Option<ZwpLinuxDmabufFeedbackV1>,
 }
 
+impl Drop for BackgroundLayer {
+    fn drop(&mut self) {
+        if let Some(dmabuf_feedback) = &self.dmabuf_feedback {
+            dmabuf_feedback.destroy();
+        }
+        if let Some(viewport) = &self.viewport {
+            viewport.destroy();
+        }
+    }
+}
+
 impl BackgroundLayer {
     pub fn draw_workspace_bg(&mut self, workspace_name: &str) {
         if !self.configured {
@@ -151,7 +162,7 @@ impl Drop for Wallpaper {
     fn drop(&mut self) {
         if let Some(wl_buffer) = &self.wl_buffer {
             if self.active_count != 0 {
-                warn!("Destroying a {} times active wl_buffer of \
+                debug!("Destroying a {} times active wl_buffer of \
                     wallpaper {:?}", self.active_count, self.canon_path);
             }
             wl_buffer.destroy();
@@ -262,7 +273,7 @@ impl DmabufHandler for State {
                 bg_layer.dmabuf_feedback.as_ref() == Some(proxy)
             )
         else {
-            error!("Received unexpected Linux DMA-BUF feedback");
+            debug!("Received unexpected Linux DMA-BUF feedback");
             return
         };
         if let Err(e) = handle_dmabuf_feedback(
@@ -914,7 +925,9 @@ fn fallback_shm_load_wallpapers(
     bg_layer_index: usize,
 ) {
     let bg_layer = &mut state.background_layers[bg_layer_index];
-    bg_layer.dmabuf_feedback = None;
+    if let Some(dmabuf_feedback) = bg_layer.dmabuf_feedback.take() {
+        dmabuf_feedback.destroy();
+    }
     bg_layer.workspace_backgrounds.clear();
     load_wallpapers(state, qh, bg_layer_index, None);
 }
