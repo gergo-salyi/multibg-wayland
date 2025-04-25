@@ -680,7 +680,8 @@ impl OutputHandler for State {
                 or low quality due to scaling");
         }
 
-        let surface = bg_layer.layer.wl_surface();
+        let layer = &bg_layer.layer;
+        let surface = layer.wl_surface();
 
         if width == logical_width || height == logical_height {
             debug!("Output {} needs no scaling", output_name);
@@ -705,8 +706,14 @@ impl OutputHandler for State {
                 )
                 .set_destination(logical_width, logical_height);
         }
-
-        surface.commit();
+        // Hyprland only applies viewport change on the next redraw
+        if let Some(wallpaper) = &bg_layer.current_wallpaper {
+            if let Some(wl_buffer) = &wallpaper.borrow().wl_buffer {
+                layer.attach(Some(wl_buffer), 0, 0);
+                layer.wl_surface().damage_buffer(0, 0, width, height);
+            }
+        }
+        layer.commit();
     }
 
     fn output_destroyed(
