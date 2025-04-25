@@ -1,4 +1,5 @@
 # Maintainer: Gergő Sályi <salyigergo94@gmail.com>
+# shellcheck shell=bash disable=SC2034,SC2154
 pkgname=multibg-sway
 pkgver=0.1.10
 pkgrel=1
