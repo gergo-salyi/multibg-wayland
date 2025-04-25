@@ -1113,7 +1113,7 @@ fn handle_dmabuf_feedback(
     bg_layer_pos: usize,
 ) -> anyhow::Result<()> {
     let bg_layer = &mut state.background_layers[bg_layer_pos];
-    let main_dev = feedback.main_device();
+    let main_dev = feedback.main_device() as Dev;
     let format_table = feedback.format_table();
     let tranches = feedback.tranches();
     debug!("Linux DMA-BUF feedback for output {}, main device {}:{}, \
@@ -1125,7 +1125,7 @@ fn handle_dmabuf_feedback(
     }
     let mut selected = None;
     for (index, tranche) in tranches.iter().enumerate() {
-        let target_dev = tranche.device;
+        let target_dev = tranche.device as Dev;
         debug!("Tranche {index} target device {}:{}",
             major(target_dev), minor(target_dev));
         if selected.is_none() && target_dev == main_dev {
@@ -1158,7 +1158,7 @@ fn handle_dmabuf_feedback(
         drm_format_modifiers.iter()
             .map(|&modifier| fmt_modifier(modifier))
             .collect::<Vec<_>>().join(", "));
-    let dmabuf_drm_dev = Some(main_dev as Dev);
+    let dmabuf_drm_dev = Some(main_dev);
     if !bg_layer.workspace_backgrounds.is_empty()
         && bg_layer.workspace_backgrounds.iter().all(|bg| {
             let memory = &bg.wallpaper.borrow().memory;

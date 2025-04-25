@@ -1,7 +1,7 @@
 use std::{
     backtrace::Backtrace,
     borrow::Cow,
-    ffi::{c_void, CStr},
+    ffi::{c_char, c_void, CStr},
     ptr,
 };
 
@@ -206,8 +206,8 @@ unsafe extern "system" fn debug_report_callback(
     _object: u64,
     _location: usize,
     _message_code: i32,
-    _p_layer_prefix: *const i8,
-    p_message: *const i8,
+    _p_layer_prefix: *const c_char,
+    p_message: *const c_char,
     _p_user_data: *mut c_void
 ) -> u32 {
     let message = if p_message.is_null() {

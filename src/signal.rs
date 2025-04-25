@@ -138,14 +138,13 @@ unsafe fn sigaction_set_handler(
     flags: c_int,
 ) -> io::Result<()> {
     unsafe {
+        let mut act: sigaction = MaybeUninit::zeroed().assume_init();
+        act.sa_sigaction = handler as _;
+        act.sa_mask = mask;
+        act.sa_flags = flags;
         if sigaction(
             signum,
-            &sigaction {
-                sa_sigaction: handler as _,
-                sa_mask: mask,
-                sa_flags: flags,
-                sa_restorer: None,
-            },
+            &act,
             ptr::null_mut(),
         ) < 0 {
             return Err(io::Error::last_os_error())
@@ -221,7 +220,8 @@ impl Drop for ErrnoGuard {
 // https://github.com/lambda-fairy/rust-errno/blob/main/src/unix.rs
 // under licence MIT OR Apache-2.0
 
-unsafe extern "C" {
+#[allow(unexpected_cfgs)]
+extern "C" {
     #[cfg_attr(
         any(
             target_os = "linux",
