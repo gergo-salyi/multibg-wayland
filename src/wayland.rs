@@ -120,7 +120,7 @@ impl BackgroundLayer {
             }
         }
 
-        let mut wallpaper_borrow = wallpaper.borrow_mut();
+        let wallpaper_borrow = wallpaper.borrow();
         let Some(wl_buffer) = wallpaper_borrow.wl_buffer.as_ref() else {
             debug!("Wallpaper for output {} workspace {} is not ready yet",
                 self.output_name, workspace_name);
@@ -130,7 +130,7 @@ impl BackgroundLayer {
 
         // Attach and commit to new workspace background
         self.layer.attach(Some(wl_buffer), 0, 0);
-        wallpaper_borrow.active_count += 1;
+        // wallpaper_borrow.active_count += 1;
 
         // Damage the entire surface
         self.layer.wl_surface().damage_buffer(0, 0, self.width, self.height);
@@ -152,7 +152,7 @@ struct WorkspaceBackground {
 
 struct Wallpaper {
     wl_buffer: Option<WlBuffer>,
-    active_count: usize,
+    // active_count: usize,
     memory: Memory,
     canon_path: PathBuf,
     canon_modified: u128,
@@ -161,10 +161,10 @@ struct Wallpaper {
 impl Drop for Wallpaper {
     fn drop(&mut self) {
         if let Some(wl_buffer) = &self.wl_buffer {
-            if self.active_count != 0 {
-                debug!("Destroying a {} times active wl_buffer of \
-                    wallpaper {:?}", self.active_count, self.canon_path);
-            }
+            // if self.active_count != 0 {
+            //     debug!("Destroying a {} times active wl_buffer of \
+            //         wallpaper {:?}", self.active_count, self.canon_path);
+            // }
             wl_buffer.destroy();
         }
     }
@@ -347,25 +347,25 @@ impl DmabufHandler for State {
         &mut self,
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
-        buffer: &WlBuffer
+        _buffer: &WlBuffer
     ) {
-        for bg in self.background_layers.iter_mut()
-            .flat_map(|bg_layer| &mut bg_layer.workspace_backgrounds)
-        {
-            let mut wallpaper = bg.wallpaper.borrow_mut();
-            if wallpaper.wl_buffer.as_ref() == Some(buffer) {
-                if let Some(new_count) = wallpaper.active_count.checked_sub(1) {
-                    debug!("Compositor released the DMA-BUF wl_buffer of {:?}",
-                        wallpaper.canon_path);
-                    wallpaper.active_count = new_count;
-                } else {
-                    error!("Unexpected release event for the DMA-BUF \
-                        wl_buffer of {:?}", wallpaper.canon_path);
-                }
-                return
-            }
-        }
-        warn!("Release event for already destroyed DMA-BUF wl_buffer");
+        // for bg in self.background_layers.iter_mut()
+        //     .flat_map(|bg_layer| &mut bg_layer.workspace_backgrounds)
+        // {
+        //     let mut wallpaper = bg.wallpaper.borrow_mut();
+        //     if wallpaper.wl_buffer.as_ref() == Some(buffer) {
+        //         if let Some(new_count) = wallpaper.active_count.checked_sub(1) {
+        //             debug!("Compositor released the DMA-BUF wl_buffer of {:?}",
+        //                 wallpaper.canon_path);
+        //             wallpaper.active_count = new_count;
+        //         } else {
+        //             error!("Unexpected release event for the DMA-BUF \
+        //                 wl_buffer of {:?}", wallpaper.canon_path);
+        //         }
+        //         return
+        //     }
+        // }
+        // warn!("Release event for already destroyed DMA-BUF wl_buffer");
     }
 }
 
@@ -810,30 +810,30 @@ impl Dispatch<WpViewport, ()> for State {
 
 impl Dispatch<WlBuffer, ()> for State {
     fn event(
-        state: &mut Self,
-        proxy: &WlBuffer,
+        _state: &mut Self,
+        _proxy: &WlBuffer,
         _event: <WlBuffer as Proxy>::Event,
         _data: &(),
         _conn: &Connection,
         _qhandle: &QueueHandle<Self>,
     ) {
-        for bg in state.background_layers.iter_mut()
-            .flat_map(|bg_layer| &mut bg_layer.workspace_backgrounds)
-        {
-            let mut wallpaper = bg.wallpaper.borrow_mut();
-            if wallpaper.wl_buffer.as_ref() == Some(proxy) {
-                if let Some(new_count) = wallpaper.active_count.checked_sub(1) {
-                    debug!("Compositor released the wl_shm wl_buffer of {:?}",
-                        wallpaper.canon_path);
-                    wallpaper.active_count = new_count;
-                } else {
-                    error!("Unexpected release event for the wl_shm \
-                        wl_buffer of {:?}", wallpaper.canon_path);
-                }
-                return
-            }
-        }
-        warn!("Release event for already destroyed wl_shm wl_buffer");
+        // for bg in state.background_layers.iter_mut()
+        //     .flat_map(|bg_layer| &mut bg_layer.workspace_backgrounds)
+        // {
+        //     let mut wallpaper = bg.wallpaper.borrow_mut();
+        //     if wallpaper.wl_buffer.as_ref() == Some(proxy) {
+        //         if let Some(new_count) = wallpaper.active_count.checked_sub(1) {
+        //             debug!("Compositor released the wl_shm wl_buffer of {:?}",
+        //                 wallpaper.canon_path);
+        //             wallpaper.active_count = new_count;
+        //         } else {
+        //             error!("Unexpected release event for the wl_shm \
+        //                 wl_buffer of {:?}", wallpaper.canon_path);
+        //         }
+        //         return
+        //     }
+        // }
+        // warn!("Release event for already destroyed wl_shm wl_buffer");
     }
 }
 
@@ -1097,7 +1097,7 @@ fn load_wallpapers(
             workspace_name: wallpaper_file.workspace,
             wallpaper: Rc::new(RefCell::new(Wallpaper {
                 wl_buffer: Some(wl_buffer),
-                active_count: 0,
+                // active_count: 0,
                 memory: Memory::WlShm { pool: shm_pool },
                 canon_path: wallpaper_file.canon_path,
                 canon_modified: wallpaper_file.canon_modified,
@@ -1237,7 +1237,7 @@ fn wallpaper_dmabuf(
     );
     Rc::new(RefCell::new(Wallpaper {
         wl_buffer: None,
-        active_count: 0,
+        // active_count: 0,
         memory: Memory::Dmabuf { gpu_memory, params: Some(params) },
         canon_path,
         canon_modified,
