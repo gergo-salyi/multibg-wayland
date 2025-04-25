@@ -464,6 +464,24 @@ impl OutputHandler for State {
             return
         }
 
+        #[cfg(debug_assertions)]
+        let (width, logical_width, height, logical_height) = {
+            let mut ret = (width, logical_width, height, logical_height);
+            if let Ok(var) = std::env::var("MULTIBG_DEBUG_OUTPUT_RES") {
+                for out_res in var.split(',') {
+                    let (output, res) = out_res.split_once('=').unwrap();
+                    if output == output_name.as_str() {
+                        let (w, h) = res.split_once('x').unwrap();
+                        let w: i32 = w.parse().unwrap();
+                        let h: i32 = h.parse().unwrap();
+                        ret = (w, w, h, h);
+                        break
+                    }
+                }
+            }
+            ret
+        };
+
         debug!("New output, name: {}, resolution: {}x{}, integer scale \
             factor: {}, logical size: {}x{}, transform: {:?}",
             output_name, width, height, integer_scale_factor,
@@ -1128,6 +1146,10 @@ fn handle_dmabuf_feedback(
         if dmabuf_format.format == DRM_FORMAT_XRGB8888 {
             drm_format_modifiers.push(dmabuf_format.modifier);
         }
+    }
+    #[cfg(debug_assertions)]
+    if std::env::var("MULTIBG_DEBUG_GPU_FORMAT_LINEAR").is_ok() {
+        drm_format_modifiers = vec![crate::gpu::DRM_FORMAT_MOD_LINEAR];
     }
     if drm_format_modifiers.is_empty() {
         bail!("Selected tranche has no modifiers for DRM_FORMAT_XRGB8888");
