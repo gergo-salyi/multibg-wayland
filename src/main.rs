@@ -14,7 +14,6 @@ use std::{
         Arc,
         mpsc::{channel, Receiver},
     },
-    rc::Rc,
 };
 
 use clap::Parser;
@@ -51,7 +50,6 @@ use crate::{
 };
 
 struct State {
-    connection: Rc<Connection>,
     compositor_state: CompositorState,
     registry_state: RegistryState,
     output_state: OutputState,
@@ -112,7 +110,7 @@ fn run() -> anyhow::Result<()> {
     //     Initialize wayland client
     // ********************************
 
-    let conn = Rc::new(Connection::connect_to_env().unwrap());
+    let conn = Connection::connect_to_env().unwrap();
     let (globals, mut event_queue) = registry_queue_init(&conn).unwrap();
     let qh = event_queue.handle();
 
@@ -164,7 +162,6 @@ fn run() -> anyhow::Result<()> {
         .unwrap_or(Compositor::Sway);
 
     let mut state = State {
-        connection: Rc::clone(&conn),
         compositor_state,
         registry_state,
         output_state: OutputState::new(&globals, &qh),

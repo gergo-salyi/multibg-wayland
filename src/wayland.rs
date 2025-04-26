@@ -263,7 +263,7 @@ impl DmabufHandler for State {
 
     fn dmabuf_feedback(
         &mut self,
-        _conn: &Connection,
+        conn: &Connection,
         qh: &QueueHandle<Self>,
         proxy: &ZwpLinuxDmabufFeedbackV1,
         feedback: DmabufFeedback,
@@ -278,13 +278,14 @@ impl DmabufHandler for State {
         };
         if let Err(e) = handle_dmabuf_feedback(
             self,
+            conn,
             qh,
             feedback,
             bg_layer_pos
         ) {
             error!("Failed to proceed with DMA-BUF feedback, \
                 falling back to shm: {e:#}");
-            fallback_shm_load_wallpapers(self, qh, bg_layer_pos);
+            fallback_shm_load_wallpapers(self, conn, qh, bg_layer_pos);
         }
     }
 
@@ -321,7 +322,7 @@ impl DmabufHandler for State {
 
     fn failed(
         &mut self,
-        _conn: &Connection,
+        conn: &Connection,
         qh: &QueueHandle<Self>,
         params: &ZwpLinuxBufferParamsV1,
     ) {
@@ -339,7 +340,7 @@ impl DmabufHandler for State {
             }
         }
         for index in failed_bg_layer_indecies {
-            fallback_shm_load_wallpapers(self, qh, index);
+            fallback_shm_load_wallpapers(self, conn, qh, index);
         }
     }
 
@@ -415,7 +416,7 @@ impl OutputHandler for State {
 
     fn new_output(
         &mut self,
-        _conn: &Connection,
+        conn: &Connection,
         qh: &QueueHandle<Self>,
         output: WlOutput,
     ) {
@@ -594,7 +595,7 @@ impl OutputHandler for State {
             dmabuf_feedback,
         });
         if !is_dmabuf_feedback {
-            load_wallpapers(self, qh, bg_layer_index, gpu_uploader);
+            load_wallpapers(self, conn, qh, bg_layer_index, gpu_uploader);
         }
     }
 
@@ -928,6 +929,7 @@ fn print_memory_stats(background_layers: &[BackgroundLayer]) {
 
 fn fallback_shm_load_wallpapers(
     state: &mut State,
+    conn: &Connection,
     qh: &QueueHandle<State>,
     bg_layer_index: usize,
 ) {
@@ -936,11 +938,12 @@ fn fallback_shm_load_wallpapers(
         dmabuf_feedback.destroy();
     }
     bg_layer.workspace_backgrounds.clear();
-    load_wallpapers(state, qh, bg_layer_index, None);
+    load_wallpapers(state, conn, qh, bg_layer_index, None);
 }
 
 fn load_wallpapers(
     state: &mut State,
+    connection: &Connection,
     qh: &QueueHandle<State>,
     bg_layer_index: usize,
     mut gpu_uploader: Option<GpuUploader>,
@@ -978,7 +981,7 @@ fn load_wallpapers(
     let mut reused_count = 0usize;
     let mut loaded_count = 0usize;
     let mut error_count = 0usize;
-    flush_blocking(&state.connection);
+    flush_blocking(connection);
     let mut fds_need_flush = 0usize;
     for wallpaper_file in wallpaper_files {
         if log::log_enabled!(log::Level::Debug) {
@@ -1037,7 +1040,7 @@ fn load_wallpapers(
                 Ok(gpu_wallpaper) => {
                     let fds_count = gpu_wallpaper.memory_planes_len;
                     if fds_need_flush + fds_count > MAX_FDS_OUT {
-                        flush_blocking(&state.connection);
+                        flush_blocking(connection);
                         fds_need_flush = 0;
                     }
                     fds_need_flush += fds_count;
@@ -1065,7 +1068,7 @@ fn load_wallpapers(
             }
         }
         if fds_need_flush + 1 > MAX_FDS_OUT {
-            flush_blocking(&state.connection);
+            flush_blocking(connection);
             fds_need_flush = 0;
         }
         fds_need_flush += 1;
@@ -1113,7 +1116,7 @@ fn load_wallpapers(
         loaded_count += 1;
     }
     if fds_need_flush > 0 {
-        flush_blocking(&state.connection);
+        flush_blocking(connection);
     }
     debug!("Wallpapers for new output: {} loaded, {} reused, {} errors",
         loaded_count, reused_count, error_count);
@@ -1128,6 +1131,7 @@ fn load_wallpapers(
 
 fn handle_dmabuf_feedback(
     state: &mut State,
+    conn: &Connection,
     qh: &QueueHandle<State>,
     feedback: DmabufFeedback,
     bg_layer_pos: usize,
@@ -1205,7 +1209,7 @@ fn handle_dmabuf_feedback(
         debug!("DMA-BUF feedback changed, reloading wallpapers");
         bg_layer.workspace_backgrounds.clear();
     }
-    load_wallpapers(state, qh, bg_layer_pos, Some(gpu_uploader));
+    load_wallpapers(state, conn, qh, bg_layer_pos, Some(gpu_uploader));
     Ok(())
 }
 
