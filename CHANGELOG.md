@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.2.0 - 2025-04-26
+
+### Breaking changes
+- Project is being renamed to multibg-wayland to signify support for Wayland compositors other than Sway
+- Terminate gracefully on signals INT, HUP or TERM with exit code 0. A second of such signals still kills. USR1 and USR2 are reserved for future use
+- License of the source files is still MIT OR Apache-2.0 but built objects now might be under GPL-3.0-or-later.
+- Arch Linux package now depends on dav1d
+
+### Other changes
+- Added support for the Hyprland and niri wayland compositors
+- Inside the wallpaper directory wallpapers symlinked to the same image are now loaded only once and shared saving memory use
+- Correct docs about the memory type we use. We only used CPU memory and will only use CPU memory unless the new --gpu option is given.
+- Add ability to store wallpapers in GPU memory with the --gpu command line option. Requires Vulkan 1.1 or newer. This might save a few milliseconds latency on wallpaper switches avoiding the use of CPU memory and PCIe bandwidth
+- Added support for AVIF images. Requires dav1d native dependency and the avif compile time feature (disabled by default for from source builds, enabled by default for Arch Linux package)
+- Update README for the new features
+- Update dependencies, require Rust compiler version 1.82 or newer
+- Lots of internal changes supporting all the above
+
 ## 0.1.10 - 2024-11-17
 - Fix sometimes disappearing mouse cursor above wallpapers
 - Add small clarifications to README

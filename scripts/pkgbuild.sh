@@ -2,13 +2,13 @@
 set -euo pipefail
 
 if [[ "$(head -2 Cargo.toml)" != '[package]
-name = "multibg-sway"' ]]; then
+name = "multibg-wayland"' ]]; then
     echo 'Not in crate root'
     exit 1
 fi
 
 version=$(cargo pkgid | cut -d '#' -f2)
-crate="target/package/multibg-sway-$version.crate"
+crate="target/package/multibg-wayland-$version.crate"
 sum=$(sha256sum "$crate" | cut -d ' ' -f1)
 
 if [[ PKGBUILD -nt "$crate" ]]; then

@@ -677,8 +677,8 @@ impl OutputHandler for State {
 
         if bg_layer.width != width || bg_layer.height != height {
             warn!("Handling of output mode or transform changes are not yet \
-                implemented. Restart multibg-sway or expect broken wallpapers \
-                or low quality due to scaling");
+                implemented. Restart this application or expect broken \
+                wallpapers or low quality due to scaling");
         }
 
         let layer = &bg_layer.layer;
@@ -970,7 +970,7 @@ fn load_wallpapers(
         wl_shm::Format::Bgr888 => {
             // Align buffer stride to both 4 and pixel format
             // block size. Not being aligned to 4 caused
-            // https://github.com/gergo-salyi/multibg-sway/issues/6
+            // https://github.com/gergo-salyi/multibg-wayland/issues/6
             (width as usize * 3).next_multiple_of(4)
         },
         _ => unreachable!(),

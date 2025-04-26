@@ -629,7 +629,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "multibg-sway"
+name = "multibg-wayland"
 version = "0.2.0"
 dependencies = [
  "anyhow",

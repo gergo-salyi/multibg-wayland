@@ -1,35 +1,39 @@
-# multibg-sway
+# multibg-wayland
 
-Set a different wallpaper for the background of each Sway workspace
+Set a different wallpaper for the background of each Sway / Hyprland / niri workspace
+
+## News
+
+Project is being renamed to multibg-wayland to signify support for Wayland compositors other than Sway. The name multibg-sway remains as an alias or redirect.
 
 ## Usage
 
-    $ multibg-sway <WALLPAPER_DIR>
+    $ multibg-wayland <WALLPAPER_DIR>
 
 Wallpapers should be arranged in the following directory structure:
 
     wallpaper_dir/output/workspace_name.{jpg|png|...}
 
-Eg.
+Such as:
 
     ~/my_wallpapers/HDMI-A-1/1.jpg
 
 In more detail:
 
-- **wallpaper_dir**: A directory, this will be the argument for the multibg-sway command
+- **wallpaper_dir**: A directory, this will be the command line argument
 
-- **output**: A directory with the same name as a sway output eg. eDP-1, HDMI-A-1
-  - If one has multiple outputs with the same resolution this can be a symlink to the directory of the other output. 
-  - To get the name of current outputs from sway one may run:
+- **output**: A directory with the same name as a Wayland output such as eDP-1, HDMI-A-1
+  - For multiple outputs this can be a symlink to the directory of an other output.
+  - Get the name of current outputs from the compositor with these Sway / Hyprland / niri commands:
 
         $ swaymsg -t get_outputs
+        $ hyprctl monitors
+        $ niri msg outputs
 
-- **workspace_name**: The name of the sway workspace, by sway defaults: 1, 2, 3, ..., 10
-  - Can be a manually defined workspace name (eg. in sway config), but renaming workspaces while multibg-sway is running is not supported currently
+- **workspace_name**: The name of the workspace, by default use the compositors assigned workspace numbers as names: 1, 2, 3, ..., 10
+  - Can be the name of a named workspace usually defined in the config file of the compositor. (Renaming workspaces while multibg-workspace is running might not be supported yet.)
   - Can define a **fallback wallpaper** with the special name: **_default**
-  - Can be a symlink to use a wallpaper image for multiple workspaces
-
-Wallpaper images are now automatically resized at startup to _fill_ the output. Still it is better to have wallpaper images the same resolution as the output, which automatically avoids resizing operations and decreases startup time.
+  - Can be a symlink to the wallpaper of an other workspace
 
 ### Example
 
@@ -45,52 +49,64 @@ For one having a laptop with a built-in display eDP-1 and an external monitor HD
              ├─ 1.jpg
              └─ 3.png
 
-Then start multibg_sway:
+Then start multibg-wayland:
 
-    $ multibg-sway ~/my_wallpapers
+    $ multibg-wayland ~/my_wallpapers
 
-It is recommended to edit the wallpaper images in a dedicated image editor. Nevertheless the contrast and brightness might be adjusted here:
+### Options
 
-    $ multibg-sway --contrast=-25 --brightness=-60 ~/my_wallpapers
+In case of errors we log to stderr and try to continue. Redirect stderr to a log file if necessary.
 
-In case of errors multibg-sway logs to stderr and tries to continue. One may wish to redirect stderr if multibg-sway is being run as a daemon.
+By default, without the `--gpu` option only CPU memory is used to store wallpapers, shared with the Wayland compositor. (All of this might be reported as memory used by the compositor process instead of our process.)
+
+With the `--gpu` option set GPU memory (again, shared with the compositor) is used. This requires Vulkan loader and driver with Vulkan 1.1 or newer, and might save a few milliseconds latency on wallpaper switches avoiding the use of CPU memory and PCIe bandwidth. (I recommend to try this out, I just can't test it with many GPUs.)
+
+The running Wayland compositor is autodetected based on environment variables. If this fails then try to set the `--compositor {sway|hyprland|niri}` command line option.
+
+It is recommended to resize the wallpapers to the resolution of the output and color adjust with dedicated tools like imagemagick or gimp.
+
+This app can do _some_ imperfect image processing at the expense of startup time. Wallpaper images with different resolution than their output are resized (with high quality filter but incorrect gamma) to _fill_ the output. Contrast and brightness (on some bad arbitrary scale) might be adjusted such as:
+
+    $ multibg-wayland --contrast=-25 --brightness=-60 ~/my_wallpapers
 
 ### Resource usage
 
-Loaded wallpapers are stored uncompressed to enable fast wallpaper switching with nearly zero CPU use. For example for 10 full HD wallpaper this means 10\*1920\*1080\*4 = 83 MB graphics memory use.
-
-Because multibg-sway doesn't have its own GPU context and manages graphics memory through sway, all this usage might be reported as additional memory used by the sway process.
+For active outputs all wallpapers from the corresponding `wallpaper_dir/output` are loaded and stored uncompressed to enable fast wallpaper switching. Wallpapers with multiple symlinks pointing to it are only loaded once and shared. For example for 10 unique full HD wallpaper this means 10\*1920\*1080\*4 = 83 MB memory use.
 
 ## Installation
 
 Requires `Rust`, get it from your package manager or from the official website: [https://www.rust-lang.org/tools/install](https://www.rust-lang.org/tools/install)
 
-- Latest release (from [crates.io](https://crates.io/crates/multibg-sway)) with Cargo install provided by Rust:
+- Latest release (from [crates.io](https://crates.io/crates/multibg-wayland)) with Cargo install provided by Rust:
 
-      $ cargo install --locked multibg-sway
+      $ cargo install --locked multibg-wayland
 
-  Run `~/.cargo/bin/multibg-sway`
+  Run `~/.cargo/bin/multibg-wayland`
 
 - Directly from the current git source:
 
-      $ git clone https://github.com/gergo-salyi/multibg-sway.git
-      $ cd multibg-sway
+      $ git clone https://github.com/gergo-salyi/multibg-wayland.git
+      $ cd multibg-wayland
       $ cargo build --release --locked
 
-  Run `./target/release/multibg-sway`
+  Run `./target/release/multibg-wayland`
 
-- For Arch Linux from AUR: [https://aur.archlinux.org/packages/multibg-sway](https://aur.archlinux.org/packages/multibg-sway)
+- For Arch Linux from AUR: [https://aur.archlinux.org/packages/multibg-wayland](https://aur.archlinux.org/packages/multibg-wayland)
   - eg. with paru
 
-        $ paru -S multibg-sway
+        $ paru -S multibg-wayland
 
 ## Bug reporting
 
-Reports on any problems are appreciated, look for an existing or open a new issue at [https://github.com/gergo-salyi/multibg-sway/issues](https://github.com/gergo-salyi/multibg-sway/issues)
+Reports on any problems are appreciated, look for an existing or open a new issue at [https://github.com/gergo-salyi/multibg-wayland/issues](https://github.com/gergo-salyi/multibg-wayland/issues)
 
-Please include a verbose log from you terminal by running with `RUST_BACKTRACE=1` and `RUST_LOG=trace` environment variables set, such as
+Please include a verbose log from you terminal by running with `RUST_BACKTRACE=1` and `RUST_LOG=info,multibg_wayland=trace` environment variables set, such as
 
-    $ RUST_BACKTRACE=1 RUST_LOG=info,multibg_sway=trace multibg-sway ~/my_wallpapers
+    $ export RUST_BACKTRACE=1
+    $ export RUST_LOG=info,multibg_wayland=trace
+    $ multibg-wayland ~/my_wallpapers
+
+If using the --gpu option also consider installing Vulkan validation layers from your distro. It which will be automatically enabled at the log levels defined above.
 
 ## Alternatives
 

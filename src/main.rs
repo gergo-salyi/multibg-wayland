@@ -88,7 +88,7 @@ fn run() -> anyhow::Result<()> {
     env_logger::Builder::from_env(
         env_logger::Env::default().default_filter_or(
             #[cfg(debug_assertions)]
-            "info,multibg_sway=trace",
+            "info,multibg_wayland=trace",
             #[cfg(not(debug_assertions))]
             "info",
         )

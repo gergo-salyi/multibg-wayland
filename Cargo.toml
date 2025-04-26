@@ -1,17 +1,17 @@
 [package]
-name = "multibg-sway"
+name = "multibg-wayland"
 version = "0.2.0"
 authors = ["Gergő Sályi <salyigergo94@gmail.com>"]
 edition = "2021"
 rust-version = "1.82"
-description = "Set a different wallpaper for the background of each Sway workspace"
+description = "Set a different wallpaper for the background of each Sway or Hyprland or niri workspace"
 readme = "README.md"
-homepage = "https://github.com/gergo-salyi/multibg-sway"
-repository = "https://github.com/gergo-salyi/multibg-sway"
+homepage = "https://github.com/gergo-salyi/multibg-wayland"
+repository = "https://github.com/gergo-salyi/multibg-wayland"
 license = "MIT OR Apache-2.0"
 keywords = ["wallpaper", "background", "desktop", "wayland", "sway"]
 categories = ["command-line-utilities", "multimedia::images"]
-exclude = ["/PKGBUILD", "/scripts/"]
+exclude = ["/PKGBUILD", "/PKGBUILD.in", "/scripts/"]
 
 [dependencies]
 anyhow = "1.0.97"

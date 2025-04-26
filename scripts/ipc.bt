@@ -1,7 +1,7 @@
 #!/usr/bin/env bpftrace
 /*
  * Trace the timings of wayland and sway-ipc unix socket
- * send and receive syscalls on multibg-sway
+ * send and receive syscalls on multibg-wayland
  *
  * On Linux with bpftrace installed one can run this script as root
  * to get microsecond resolution timings printed to stdout
@@ -15,7 +15,7 @@
 
 tracepoint:syscalls:sys_enter_sendto
 {
-    if (comm != "multibg-sway") {
+    if (comm != "multibg-wayland") {
         return;
     }
 
@@ -28,7 +28,7 @@ tracepoint:syscalls:sys_enter_sendto
 
 tracepoint:syscalls:sys_enter_sendmsg
 {
-    if (comm != "multibg-sway") {
+    if (comm != "multibg-wayland") {
         return;
     }
 
@@ -41,7 +41,7 @@ tracepoint:syscalls:sys_enter_sendmsg
 
 tracepoint:syscalls:sys_enter_write
 {
-    if (comm != "multibg-sway") {
+    if (comm != "multibg-wayland") {
         return;
     }
 
@@ -60,7 +60,7 @@ tracepoint:syscalls:sys_enter_write
 
 tracepoint:syscalls:sys_exit_recvfrom
 {
-    if (comm != "multibg-sway") {
+    if (comm != "multibg-wayland") {
         return;
     }
 
@@ -72,7 +72,7 @@ tracepoint:syscalls:sys_exit_recvfrom
 
 tracepoint:syscalls:sys_exit_recvmsg
 {
-    if (comm != "multibg-sway") {
+    if (comm != "multibg-wayland") {
         return;
     }
 
@@ -86,7 +86,7 @@ tracepoint:syscalls:sys_exit_recvmsg
 /*
 tracepoint:raw_syscalls:sys_enter
 {
-    if (comm != "multibg-sway") {
+    if (comm != "multibg-wayland") {
         return;
     }
 
