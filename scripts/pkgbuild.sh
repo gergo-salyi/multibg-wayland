@@ -7,7 +7,7 @@ name = "multibg-wayland"' ]]; then
     exit 1
 fi
 
-version=$(cargo pkgid | cut -d '#' -f2)
+version=$(cargo pkgid | cut -d '@' -f2)
 crate="target/package/multibg-wayland-$version.crate"
 sum=$(sha256sum "$crate" | cut -d ' ' -f1)
 
