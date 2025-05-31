@@ -37,3 +37,9 @@ features = ["bmp", "dds", "exr", "ff", "gif", "hdr", "ico", "jpeg", "png", "pnm"
 [features]
 default = []
 avif = ["image/avif-native"]
+
+[lints.rust]
+unused_must_use = "deny"
+
+[lints.clippy]
+uninlined_format_args = "allow"
