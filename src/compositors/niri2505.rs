@@ -1,7 +1,7 @@
 use std::io;
 
 use log::debug;
-use niri_ipc::{socket::Socket, Event, Request, Response, Workspace};
+use niri_ipc_25_5_1::{socket::Socket, Event, Request, Response, Workspace};
 
 use super::{CompositorInterface, EventSender, WorkspaceVisible};
 
@@ -57,13 +57,11 @@ fn find_workspace(workspaces: &[Workspace], id: u64) -> WorkspaceVisible {
 }
 
 fn request_event_stream() -> impl FnMut() -> Result<Event, io::Error> {
-    let Ok((Ok(Response::Handled), callback)) = Socket::connect()
-        .expect("failed to connect to niri socket")
-        .send(Request::EventStream)
-    else {
+    let mut socket = Socket::connect().expect("failed to connect to niri socket");
+    let Ok(Ok(Response::Handled)) = socket.send(Request::EventStream) else {
         panic!("failed to subscribe to event stream");
     };
-    callback
+    socket.read_events()
 }
 
 fn request_workspaces() -> Vec<Workspace> {
@@ -71,7 +69,6 @@ fn request_workspaces() -> Vec<Workspace> {
         .expect("failed to connect to niri socket")
         .send(Request::Workspaces)
         .expect("failed to send niri ipc request")
-        .0
         .expect("niri workspace query failed");
     let Response::Workspaces(workspaces) = response else {
         panic!("unexpected response from niri");

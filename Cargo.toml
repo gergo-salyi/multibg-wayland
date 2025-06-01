@@ -11,7 +11,7 @@ repository = "https://github.com/gergo-salyi/multibg-wayland"
 license = "MIT OR Apache-2.0"
 keywords = ["wallpaper", "background", "desktop", "wayland", "sway"]
 categories = ["command-line-utilities", "multimedia::images"]
-exclude = ["/PKGBUILD", "/PKGBUILD.in", "/scripts/"]
+exclude = ["/PKGBUILD", "/PKGBUILD.in", "/deps/", "/scripts/"]
 
 [dependencies]
 anyhow = "1.0.97"
@@ -21,7 +21,8 @@ env_logger = "0.11.3"
 fast_image_resize = "5.0.0"
 libc = "0.2.171"
 log = "0.4.21"
-niri-ipc = "=25.2.0"
+niri-ipc-25-2-0 = { package = "multibg-wayland-niri-ipc", version = "=0.250200.0" }
+niri-ipc-25-5-1 = { package = "niri-ipc", version = "=25.5.1" }
 rustix = { version = "0.38.44", features = ["event", "fs", "pipe"] }
 scopeguard = "1.2.0"
 serde = { version = "1.0.219", features = ["derive"] }

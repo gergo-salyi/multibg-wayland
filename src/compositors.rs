@@ -1,14 +1,18 @@
 mod hyprland;
-mod niri;
+mod niri2502;
+mod niri2505;
 mod sway;
 
 use std::{
     env,
     os::unix::ffi::OsStrExt,
+    process::Command,
     sync::{mpsc::Sender, Arc},
     thread,
 };
 
+use anyhow::{bail, Context};
+use serde::Deserialize;
 use log::{debug, warn};
 
 use crate::poll::Waker;
@@ -116,7 +120,17 @@ impl ConnectionTask {
             Compositor::Hyprland => Box::new(
                 hyprland::HyprlandConnectionTask::new()
             ),
-            Compositor::Niri => Box::new(niri::NiriConnectionTask::new()),
+            Compositor::Niri => match get_niri_version() {
+                Ok(niri_verison) => if niri_verison >= niri_ver(25, 5) {
+                    Box::new(niri2505::NiriConnectionTask::new())
+                } else {
+                    Box::new(niri2502::NiriConnectionTask::new())
+                },
+                Err(e) => {
+                    warn!("Failed to get niri version: {e:#}");
+                    Box::new(niri2505::NiriConnectionTask::new())
+                }
+            }
         };
 
         ConnectionTask {
@@ -144,9 +158,19 @@ impl ConnectionTask {
                         hyprland::HyprlandConnectionTask::new();
                     composer_interface.subscribe_event_loop(event_sender);
                 }
-                Compositor::Niri => {
-                    let composer_interface = niri::NiriConnectionTask::new();
-                    composer_interface.subscribe_event_loop(event_sender);
+                Compositor::Niri => match get_niri_version() {
+                    Ok(niri_verison) => if niri_verison >= niri_ver(25, 5) {
+                        niri2505::NiriConnectionTask::new()
+                            .subscribe_event_loop(event_sender)
+                    } else {
+                        niri2502::NiriConnectionTask::new()
+                            .subscribe_event_loop(event_sender)
+                    },
+                    Err(e) => {
+                        warn!("Failed to get niri version: {e:#}");
+                        niri2505::NiriConnectionTask::new()
+                            .subscribe_event_loop(event_sender)
+                    }
                 }
             })
             .unwrap();
@@ -190,4 +214,40 @@ impl ConnectionTask {
 pub struct WorkspaceVisible {
     pub output: String,
     pub workspace_name: String,
+}
+
+#[derive(Deserialize)]
+struct NiriVersionJson {
+    compositor: String,
+}
+
+// Example:
+// $ niri msg --json version
+// {"cli":"25.02 (unknown commit)","compositor":"25.02 (unknown commit)"}
+fn get_niri_version() -> anyhow::Result<u64> {
+    let out = Command::new("niri")
+        .args(["msg", "--json", "version"])
+        .output().context("Command niri msg version failed")?;
+    if !out.status.success() {
+        bail!("Command niri msg version exited with {}: {}",
+            out.status, String::from_utf8_lossy(&out.stderr));
+    }
+    let version_json: NiriVersionJson = serde_json::from_slice(&out.stdout)
+        .context("Failed to deserialize niri msg version json")?;
+    debug!("Niri version: {}", version_json.compositor);
+    let version = parse_niri_version(&version_json.compositor)
+        .context("Failed to parse niri version")?;
+    Ok(version)
+}
+
+fn parse_niri_version(version_str: &str) -> Option<u64> {
+    // Example: "25.02 (unknown commit)"
+    let mut iter = version_str.split(|c: char| !c.is_ascii_digit());
+    let major = iter.next()?.parse::<u32>().ok()?;
+    let minor = iter.next()?.parse::<u32>().ok()?;
+    Some(niri_ver(major, minor))
+}
+
+fn niri_ver(major: u32, minor: u32) -> u64 {
+    ((major as u64) << 32) | (minor as u64)
 }

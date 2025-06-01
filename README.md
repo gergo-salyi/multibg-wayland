@@ -119,6 +119,8 @@ If using the --gpu option also consider installing Vulkan validation layers from
 
 ## License
 
-Source files in this project are distributed under MIT OR Apache-2.0
+Source files in this project (except vendored dependencies under `deps/`) are distributed under MIT OR Apache-2.0.
+
+Vendored dependencies under `deps/` are distributed under their respective licenses.
 
 Objects resulting from building this project might be under GPL-3.0-or-later due to licenses of statically linked dependencies. Open an issue if you need compile time features gating such dependencies.
