@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1 - 2025-06-01
+- Fix niri compatibility [#16](https://github.com/gergo-salyi/multibg-wayland/issues/16)
+- Update dependencies
+
 ## 0.2.0 - 2025-04-26
 
 ### Breaking changes
