@@ -17,6 +17,8 @@ optdepends=(
     'vulkan-driver: upload and serve wallpapers from GPU memory'
     'vulkan-icd-loader: upload and serve wallpapers from GPU memory'
 )
+conflicts=('multibg-sway')
+provides=('multibg-sway')
 source=("$pkgname-$pkgver.tar.gz::https://static.crates.io/crates/$pkgname/$pkgname-$pkgver.crate")
 sha256sums=('@sha256sum@')
 
