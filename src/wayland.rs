@@ -968,10 +968,13 @@ fn load_wallpapers(
     let shm_stride = match shm_format {
         wl_shm::Format::Xrgb8888 => width as usize * 4,
         wl_shm::Format::Bgr888 => {
-            // Align buffer stride to both 4 and pixel format
-            // block size. Not being aligned to 4 caused
-            // https://github.com/gergo-salyi/multibg-wayland/issues/6
-            (width as usize * 3).next_multiple_of(4)
+            // Align buffer stride:
+            // - once to 4, because not being aligned to 4 caused
+            //   https://github.com/gergo-salyi/multibg-wayland/issues/6
+            // - and to 3, because not being aligned to 3 caused
+            //   https://github.com/gergo-salyi/multibg-wayland/issues/17
+            // So align stride to 4 * 3 = 12
+            (width as usize * 3).next_multiple_of(12)
         },
         _ => unreachable!(),
     };
