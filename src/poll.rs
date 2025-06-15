@@ -96,7 +96,7 @@ impl Waker {
 }
 
 impl AsFd for Waker {
-    fn as_fd(&self) -> BorrowedFd {
+    fn as_fd(&self) -> BorrowedFd<'_> {
         match self {
             Waker::Eventfd { fd } => fd.as_fd(),
             Waker::Pipe { read_half, .. } => read_half.as_fd(),

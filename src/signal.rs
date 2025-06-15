@@ -93,7 +93,7 @@ impl Drop for SignalPipe {
 }
 
 impl AsFd for SignalPipe {
-    fn as_fd(&self) -> BorrowedFd {
+    fn as_fd(&self) -> BorrowedFd<'_> {
         self.read_half.as_fd()
     }
 }
