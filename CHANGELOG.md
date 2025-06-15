@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.2 - 2025-06-15
+- Fix Wayland protocol error invalid stride on wl_shm with bgr888 format [#17](https://github.com/gergo-salyi/multibg-wayland/issues/17)
+- Update dependencies, notably zune-jpeg fixing a minor discoloration issue on decoded JPEG images
+
 ## 0.2.1 - 2025-06-01
 - Fix niri compatibility [#16](https://github.com/gergo-salyi/multibg-wayland/issues/16)
 - Update dependencies
