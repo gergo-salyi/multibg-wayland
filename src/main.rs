@@ -241,7 +241,7 @@ fn flush_blocking(connection: &Connection) {
                     connection.as_fd(),
                     PollFlags::OUT,
                 )];
-                retry_on_intr(|| poll(&mut poll_fds, -1)).unwrap();
+                retry_on_intr(|| poll(&mut poll_fds, None)).unwrap();
                 continue
             }
         }

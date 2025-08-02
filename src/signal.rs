@@ -14,7 +14,7 @@ use libc::{
 };
 use rustix::{
     fd::AsFd,
-    io::read_uninit,
+    io::read,
 };
 
 use crate::poll::pipe_cloexec_nonblock;
@@ -70,7 +70,7 @@ impl SignalPipe {
     pub fn read(&self) -> io::Result<SignalFlags> {
         let mut buf = [MaybeUninit::<u8>::uninit(); 64];
         let mut flags = 0;
-        for byte in read_uninit(&self.read_half, &mut buf)?.0 {
+        for byte in read(&self.read_half, &mut buf)?.0 {
             assert_ne!(*byte, 0);
             flags |= *byte;
         }

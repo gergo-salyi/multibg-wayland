@@ -9,7 +9,7 @@ use rustix::{
     event::{PollFd, PollFlags, poll},
     fd::AsFd,
     fs::{fcntl_setfl, OFlags},
-    io::{Errno, fcntl_setfd, FdFlags, read_uninit, retry_on_intr, write},
+    io::{Errno, fcntl_setfd, FdFlags, read, retry_on_intr, write},
     pipe::pipe,
 };
 
@@ -29,7 +29,7 @@ impl<'fd> Poll<'fd> {
     }
 
     pub fn poll(&mut self) -> io::Result<()> {
-        let events_count = retry_on_intr(|| poll(&mut self.poll_fds, -1))?;
+        let events_count = retry_on_intr(|| poll(&mut self.poll_fds, None))?;
         assert_ne!(events_count, 0);
         Ok(())
     }
@@ -86,7 +86,7 @@ impl Waker {
     pub fn read(&self) {
         match self {
             Waker::Eventfd { fd } => assert_ok_or_wouldblock(
-                read_uninit(fd, &mut [MaybeUninit::<u8>::uninit(); 8])
+                read(fd, &mut [MaybeUninit::<u8>::uninit(); 8])
             ),
             Waker::Pipe { read_half, .. } => assert_ok_or_wouldblock(
                 clear_pipe(read_half)
@@ -132,7 +132,7 @@ fn clear_pipe(read_half: impl AsFd) -> Result<(), Errno> {
     const LEN: usize = 256;
     let mut buf = [MaybeUninit::<u8>::uninit(); LEN];
     loop {
-        match read_uninit(&read_half, &mut buf) {
+        match read(&read_half, &mut buf) {
             Ok((slice, _)) => if slice.len() < LEN { return Ok(()) },
             Err(e) => return Err(e),
         }
