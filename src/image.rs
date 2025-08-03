@@ -29,6 +29,41 @@ pub struct WallpaperFile {
     pub canon_modified: u128,
 }
 
+pub fn output_dir_from_description(
+    wallpaper_dir: &Path,
+    output_description: &str,
+) -> anyhow::Result<Option<PathBuf>> {
+    let dir = read_dir(wallpaper_dir)
+        .context("Failed to read wallpaper directory")?;
+    let mut matches = Vec::with_capacity(1);
+    for dir_entry_result in dir {
+        let dir_entry = dir_entry_result
+            .context("Failed to read wallpaper directory entries")?;
+        let path = dir_entry.path();
+        if !path.is_dir() {
+            warn!("Ignoring non-directory entry in wallpaper dir: {path:?}");
+            continue
+        }
+        let Ok(dir_name) = dir_entry.file_name().into_string() else {
+            error!("Ignoring not UTF-8 valid entry in wallpaper dir: {path:?}");
+            continue
+        };
+        // The current strategy is to check if the output directory name
+        // is a substring of the Wayland output description
+        if output_description.contains(&dir_name) {
+            matches.push(path);
+        }
+    }
+    if matches.len() > 1 {
+        error!("Output description {output_description} is matched \
+            by multiple output directories (we will use the first \
+            from this unspecified order): {:?}",
+            matches.iter(),
+        );
+    }
+    Ok(matches.into_iter().next())
+}
+
 pub fn output_wallpaper_files(
     output_dir: &Path,
 ) -> anyhow::Result<Vec<WallpaperFile>> {

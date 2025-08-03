@@ -55,13 +55,41 @@ Then start multibg-wayland:
 
 ### Options
 
+#### Logging
+
 In case of errors we log to stderr and try to continue. Redirect stderr to a log file if necessary.
+
+#### GPU
 
 By default, without the `--gpu` option only CPU memory is used to store wallpapers, shared with the Wayland compositor. (All of this might be reported as memory used by the compositor process instead of our process.)
 
 With the `--gpu` option set GPU memory (again, shared with the compositor) is used. This requires Vulkan loader and driver with Vulkan 1.1 or newer, and might save a few milliseconds latency on wallpaper switches avoiding the use of CPU memory and PCIe bandwidth. (I recommend to try this out, I just can't test it with many GPUs.)
 
+#### Selecting the Wayland compositor
+
 The running Wayland compositor is autodetected based on environment variables. If this fails then try to set the `--compositor {sway|hyprland|niri}` command line option.
+
+#### Matching output descriptions
+
+If the outputs cannot be reliably identified by output names such as eDP-1 or HDMI-A-1 because they change every time, then option `--match-output-description` can be used to interpret the name of the per-output wallpaper directories as a **substring** to be matched against of the output description of the desired output. Wayland output descriptions have no standard form so they will differ between compositors. They should be listed first by running `multibg-wayland --list-output-description`:
+
+    $ multibg-wayland --list-output-description
+    Output HDMI-A-1 description ACME COYOTEVISION 09171949 (HDMI-A-1)
+    Output eDP-1 description ACME 0x0707 (eDP-1)
+
+Now the names of the per-output wallpaper directories can be changed to any unique substring of the output descriptions:
+
+    ~/my_wallpapers
+        ├─ ACME 0x0707
+        │    └─ 1.jpg
+        └─ COYOTEVISION 0917
+             └─ 1.jpg
+
+And now to use this wallpaper directory start multibg-wayland with:
+
+    $ multibg-wayland --match-output-description ~/my_wallpapers
+
+#### Image processing
 
 It is recommended to resize the wallpapers to the resolution of the output and color adjust with dedicated tools like imagemagick or gimp.
 
@@ -106,7 +134,9 @@ Please include a verbose log from you terminal by running with `RUST_BACKTRACE=1
     $ export RUST_LOG=info,multibg_wayland=trace
     $ multibg-wayland ~/my_wallpapers
 
-If using the --gpu option also consider installing Vulkan validation layers from your distro. It which will be automatically enabled at the log levels defined above.
+If reporting bugs with the `--gpu` option also consider installing Vulkan validation layers from your distro. It which will be automatically enabled at the log levels defined above.
+
+If reporting bugs with the `--match-output-description` option then the log may contain monitor serial numbers as part of the logged monitor descriptions. Feel free to censor them.
 
 ## Alternatives
 

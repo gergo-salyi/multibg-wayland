@@ -40,7 +40,14 @@ pub struct Cli {
     /// upload and serve wallpapers from GPU memory using Vulkan
     #[arg(long)]
     pub gpu: bool,
+    /// list output descriptions and exit
+    #[arg(long)]
+    pub list_output_description: bool,
+    /// try to identify outputs by matching the output directory name as a substring against the output description
+    #[arg(long)]
+    pub match_output_description: bool,
     /// directory with: wallpaper_dir/output/workspace_name.{jpg|png|...}
+    #[arg(default_value = ".")]
     pub wallpaper_dir: String,
 }
 

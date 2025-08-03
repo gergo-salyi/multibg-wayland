@@ -54,13 +54,19 @@ use crate::{
         DRM_FORMAT_XRGB8888, fmt_modifier,
         GpuMemory, GpuUploader, GpuWallpaper,
     },
-    image::{load_wallpaper, output_wallpaper_files, WallpaperFile},
+    image::{
+        load_wallpaper,
+        output_dir_from_description,
+        output_wallpaper_files,
+        WallpaperFile,
+    },
 };
 
 const MAX_FDS_OUT: usize = 28;
 
 pub struct BackgroundLayer {
     pub output_name: String,
+    output_description: Option<String>,
     width: i32,
     height: i32,
     layer: LayerSurface,
@@ -499,6 +505,25 @@ impl OutputHandler for State {
             output_name, width, height, integer_scale_factor,
             logical_width, logical_height, info.transform);
 
+        if self.list_output_description {
+            if let Some(description) = info.description.as_ref() {
+                println!("Output {output_name} description {description}");
+            } else {
+                println!("Output {output_name} has no description");
+            }
+            return
+        }
+
+        // Only log output description if it is used
+        // because it may contain monitor serial numbers
+        if self.match_output_description {
+            if let Some(description) = info.description.as_ref() {
+                debug!("Output {output_name} description {description}");
+            } else {
+                debug!("Output {output_name} has no description");
+            }
+        }
+
         let layer = self.layer_shell.create_layer_surface(
             qh,
             self.compositor_state.create_surface(qh),
@@ -583,6 +608,7 @@ impl OutputHandler for State {
         let bg_layer_index = self.background_layers.len();
         self.background_layers.push(BackgroundLayer {
             output_name,
+            output_description: info.description,
             width,
             height,
             layer,
@@ -666,6 +692,16 @@ impl OutputHandler for State {
             factor: {}, logical size: {}x{}, transform: {:?}",
             output_name, width, height, integer_scale_factor,
             logical_width, logical_height, info.transform);
+
+        // Only log output description if it is used
+        // because it may contain monitor serial numbers
+        if self.match_output_description {
+            if let Some(description) = info.description.as_ref() {
+                debug!("Output {output_name} description {description}");
+            } else {
+                debug!("Output {output_name} has no description");
+            }
+        }
 
         let Some(bg_layer) = self.background_layers.iter_mut()
             .find(|bg_layers| bg_layers.output_name == output_name)
@@ -953,7 +989,27 @@ fn load_wallpapers(
     let width = bg_layer.width;
     let height = bg_layer.height;
     let transform = bg_layer.transform;
-    let output_dir = state.wallpaper_dir.join(output_name);
+    let mut output_dir = state.wallpaper_dir.join(output_name);
+    if state.match_output_description {
+        if let Some(description) = bg_layer.output_description.as_ref() {
+            match output_dir_from_description(
+                &state.wallpaper_dir,
+                description
+            ) {
+                Ok(Some(dir)) => {
+                    debug!("Output {output_name} description {description} \
+                        is matched by output directory {dir:?}");
+                    output_dir = dir;
+                },
+                Ok(None) => debug!("No output directory matched \
+                    output {output_name} description {description}"),
+                Err(e) => error!("Failed trying to match \
+                    output {output_name} description {description}: {e:#}"),
+            }
+        } else {
+            debug!("Output {output_name} has no description to match with");
+        }
+    }
     debug!("Looking for wallpapers for new output {} in {:?}",
         output_name, output_dir);
     let wallpaper_files = match output_wallpaper_files(&output_dir) {

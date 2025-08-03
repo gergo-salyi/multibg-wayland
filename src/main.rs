@@ -63,6 +63,8 @@ struct State {
     color_transform: ColorTransform,
     dmabuf_state: DmabufState,
     gpu: Option<Gpu>,
+    list_output_description: bool,
+    match_output_description: bool,
 }
 
 impl State {
@@ -177,9 +179,18 @@ fn run() -> anyhow::Result<()> {
         color_transform,
         dmabuf_state,
         gpu,
+        list_output_description: cli.list_output_description,
+        match_output_description: cli.match_output_description,
     };
 
     event_queue.roundtrip(&mut state).unwrap();
+
+    // In case of --list-output-description we should have printed
+    // the output descriptions synchronously with the wl_output events
+    // received during the roundtrip so exit with success
+    if state.list_output_description {
+        return Ok(())
+    }
 
     debug!("Initial wayland roundtrip done. Starting main event loop.");
 
