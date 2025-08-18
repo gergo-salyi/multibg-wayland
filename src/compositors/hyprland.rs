@@ -70,6 +70,7 @@ impl CompositorInterface for HyprlandConnectionTask {
                         output: active_monitor.clone(),
                         workspace_name: String::from_utf8(event_data.to_vec())
                             .unwrap(),
+                        workspace_number: -1,
                     });
                 } else if event_name == b"focusedmon" {
                     let comma_pos = event_data.iter()
@@ -135,6 +136,7 @@ fn current_state() -> CurrentState {
         visible_workspaces.push(WorkspaceVisible {
             output: monitor.name,
             workspace_name: monitor.active_workspace.name,
+            workspace_number: -1,
         });
     }
     CurrentState { active_monitor, visible_workspaces }

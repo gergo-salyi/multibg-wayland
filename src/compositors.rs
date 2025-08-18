@@ -187,6 +187,7 @@ impl ConnectionTask {
                 .send(WorkspaceVisible {
                     output: workspace.output,
                     workspace_name: workspace.workspace_name,
+                    workspace_number: workspace.workspace_number,
                 })
                 .unwrap();
 
@@ -202,6 +203,7 @@ impl ConnectionTask {
                 .send(WorkspaceVisible {
                     output: workspace.output,
                     workspace_name: workspace.workspace_name,
+                    workspace_number: workspace.workspace_number
                 })
                 .unwrap();
 
@@ -214,6 +216,7 @@ impl ConnectionTask {
 pub struct WorkspaceVisible {
     pub output: String,
     pub workspace_name: String,
+    pub workspace_number: i32,
 }
 
 #[derive(Deserialize)]

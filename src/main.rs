@@ -290,7 +290,7 @@ fn handle_sway_event(
         if let Some(affected_bg_layer) = state.background_layers.iter_mut()
             .find(|bg_layer| bg_layer.output_name == workspace.output)
         {
-            affected_bg_layer.draw_workspace_bg(&workspace.workspace_name);
+            affected_bg_layer.draw_workspace_bg(&workspace.workspace_name, workspace.workspace_number);
         } else {
             error!(
                 "Workspace '{}' is on an unknown output '{}', \

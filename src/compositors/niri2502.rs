@@ -21,6 +21,7 @@ impl CompositorInterface for NiriConnectionTask {
                 output: workspace.output.unwrap_or_default(),
                 workspace_name: workspace.name
                     .unwrap_or_else(|| format!("{}", workspace.idx)),
+                workspace_number: workspace.idx.into(),
             })
             .collect()
     }
@@ -52,8 +53,9 @@ fn find_workspace(workspaces: &[Workspace], id: u64) -> WorkspaceVisible {
         .unwrap_or_else(|| panic!("Unknown niri workspace id {id}"));
     let workspace_name = workspace.name.clone()
         .unwrap_or_else(|| format!("{}", workspace.idx));
+    let workspace_number: i32 = workspace.idx.into();
     let output = workspace.output.clone().unwrap_or_default();
-    WorkspaceVisible { output, workspace_name }
+    WorkspaceVisible { output, workspace_name, workspace_number }
 }
 
 fn request_event_stream() -> impl FnMut() -> Result<Event, io::Error> {

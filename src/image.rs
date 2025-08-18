@@ -25,6 +25,7 @@ pub enum ColorTransform {
 pub struct WallpaperFile {
     pub path: PathBuf,
     pub workspace: String,
+    pub workspace_number: i32,
     pub canon_path: PathBuf,
     pub canon_modified: u128,
 }
@@ -49,6 +50,7 @@ pub fn output_wallpaper_files(
         }
         let workspace = path.file_stem().unwrap()
             .to_string_lossy().into_owned();
+        let workspace_number: i32 = workspace.parse().unwrap_or_default();
         let canon_path = match path.canonicalize() {
             Ok(canon_path) => canon_path,
             Err(e) => {
@@ -66,7 +68,7 @@ pub fn output_wallpaper_files(
         let canon_modified = canon_metadata.modified().unwrap()
             .duration_since(UNIX_EPOCH).unwrap()
             .as_nanos();
-        ret.push(WallpaperFile { path, workspace, canon_path, canon_modified });
+        ret.push(WallpaperFile { path, workspace, workspace_number, canon_path, canon_modified });
     }
     Ok(ret)
 }

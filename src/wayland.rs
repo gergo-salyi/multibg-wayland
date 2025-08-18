@@ -85,7 +85,7 @@ impl Drop for BackgroundLayer {
 }
 
 impl BackgroundLayer {
-    pub fn draw_workspace_bg(&mut self, workspace_name: &str) {
+    pub fn draw_workspace_bg(&mut self, workspace_name: &str, workspace_number: i32) {
         if !self.configured {
             error!("Cannot draw wallpaper image on the not yet configured \
                 layer for output: {}", self.output_name);
@@ -94,6 +94,9 @@ impl BackgroundLayer {
 
         let Some(workspace_bg) = self.workspace_backgrounds.iter()
             .find(|workspace_bg| workspace_bg.workspace_name == workspace_name)
+            .or_else(|| self.workspace_backgrounds.iter()
+                .find(|workspace_bg| workspace_bg.workspace_number == workspace_number)
+            )
             .or_else(|| self.workspace_backgrounds.iter()
                 .find(|workspace_bg| workspace_bg.workspace_name == "_default")
             )
@@ -147,6 +150,7 @@ impl BackgroundLayer {
 
 struct WorkspaceBackground {
     workspace_name: String,
+    workspace_number: i32,
     wallpaper: Rc<RefCell<Wallpaper>>,
 }
 
@@ -309,7 +313,8 @@ impl DmabufHandler for State {
                         if let Some(queued) = queued_weak.upgrade() {
                             if Rc::ptr_eq(&queued, wallpaper) {
                                 let name = workspace_bg.workspace_name.clone();
-                                bg_layer.draw_workspace_bg(&name);
+                                let number = workspace_bg.workspace_number;
+                                bg_layer.draw_workspace_bg(&name, number);
                             }
                         }
                     }
@@ -1004,6 +1009,7 @@ fn load_wallpapers(
         ) {
             workspace_backgrounds.push(WorkspaceBackground {
                 workspace_name: wallpaper_file.workspace,
+                workspace_number: wallpaper_file.workspace_number,
                 wallpaper,
             });
             reused_count += 1;
@@ -1019,6 +1025,7 @@ fn load_wallpapers(
         ) {
             workspace_backgrounds.push(WorkspaceBackground {
                 workspace_name: wallpaper_file.workspace,
+                workspace_number: wallpaper_file.workspace_number,
                 wallpaper,
             });
             reused_count += 1;
@@ -1058,6 +1065,7 @@ fn load_wallpapers(
                     );
                     workspace_backgrounds.push(WorkspaceBackground {
                         workspace_name: wallpaper_file.workspace,
+                        workspace_number: wallpaper_file.workspace_number,
                         wallpaper,
                     });
                     loaded_count += 1;
@@ -1108,6 +1116,7 @@ fn load_wallpapers(
         );
         workspace_backgrounds.push(WorkspaceBackground {
             workspace_name: wallpaper_file.workspace,
+            workspace_number: wallpaper_file.workspace_number,
             wallpaper: Rc::new(RefCell::new(Wallpaper {
                 wl_buffer: Some(wl_buffer),
                 // active_count: 0,

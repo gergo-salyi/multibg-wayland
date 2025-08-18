@@ -25,6 +25,7 @@ impl CompositorInterface for SwayConnectionTask {
             .map(|workspace| WorkspaceVisible {
                 output: workspace.output,
                 workspace_name: workspace.name,
+                workspace_number: workspace.num,
             })
             .collect()
     }
@@ -42,6 +43,7 @@ impl CompositorInterface for SwayConnectionTask {
                 event_sender.send(WorkspaceVisible {
                     output: current_workspace.output.unwrap(),
                     workspace_name: current_workspace.name.unwrap(),
+                    workspace_number: current_workspace.num.unwrap(),
                 });
             }
         }
