@@ -3,7 +3,7 @@ name = "multibg-wayland"
 version = "0.2.2"
 authors = ["Gergő Sályi <salyigergo94@gmail.com>"]
 edition = "2021"
-rust-version = "1.82"
+rust-version = "1.87"
 description = "Set a different wallpaper for the background of each Sway or Hyprland or niri workspace"
 readme = "README.md"
 homepage = "https://github.com/gergo-salyi/multibg-wayland"
@@ -23,11 +23,11 @@ libc = "0.2.171"
 log = "0.4.21"
 niri-ipc-25-2-0 = { package = "multibg-wayland-niri-ipc", version = "=0.250200.0" }
 niri-ipc-25-5-1 = { package = "niri-ipc", version = "=25.5.1" }
-rustix = { version = "0.38.44", features = ["event", "fs", "pipe"] }
+rustix = { version = "1.0.8", features = ["event", "fs", "pipe"] }
 scopeguard = "1.2.0"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
-smithay-client-toolkit = { version = "0.19.2", default-features = false }
+smithay-client-toolkit = { version = "0.20.0", default-features = false }
 swayipc = "3.0.2"
 
 [dependencies.image]
