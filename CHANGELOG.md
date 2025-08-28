@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.3 - 2025-08-28
+- Add support for using output make-model-serial strings as per-output wallpaper directory names [#18](https://github.com/gergo-salyi/multibg-wayland/issues/18)
+- Add support for selecting wallpapers of named workspaces by workspace number as a fallback instead of the workspace name [#19](https://github.com/gergo-salyi/multibg-wayland/pull/19)
+- Update dependencies
+
 ## 0.2.2 - 2025-06-15
 - Fix Wayland protocol error invalid stride on wl_shm with bgr888 format [#17](https://github.com/gergo-salyi/multibg-wayland/issues/17)
 - Update dependencies, notably zune-jpeg fixing a minor discoloration issue on decoded JPEG images
