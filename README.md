@@ -55,13 +55,37 @@ Then start multibg-wayland:
 
 ### Options
 
+#### Logging
+
 In case of errors we log to stderr and try to continue. Redirect stderr to a log file if necessary.
+
+#### GPU
 
 By default, without the `--gpu` option only CPU memory is used to store wallpapers, shared with the Wayland compositor. (All of this might be reported as memory used by the compositor process instead of our process.)
 
 With the `--gpu` option set GPU memory (again, shared with the compositor) is used. This requires Vulkan loader and driver with Vulkan 1.1 or newer, and might save a few milliseconds latency on wallpaper switches avoiding the use of CPU memory and PCIe bandwidth. (I recommend to try this out, I just can't test it with many GPUs.)
 
+#### Selecting the Wayland compositor
+
 The running Wayland compositor is autodetected based on environment variables. If this fails then try to set the `--compositor {sway|hyprland|niri}` command line option.
+
+#### Matching output make-model-serial strings
+
+If outputs cannot be reliably identified by output names such as eDP-1 or HDMI-A-1 because they change every time, then the per-output wallpaper directories can be named as the make-model-serial string of the desired output. These make-model-serial strings have no standard form so they may differ from what compositors report in one way or another. They should be listed first by running `multibg-wayland --list-outputs`:
+
+    $ multibg-wayland --list-outputs
+    HDMI-A-1: 'ACME COYOTEVISION 09171949'
+    eDP-1: 'ACME 0x0707 Unknown'
+
+Now the names of the per-output wallpaper directories can be changed to the output make-model-serial strings:
+
+    ~/my_wallpapers
+        ├─ ACME 0x0707 Unknown
+        │    └─ 1.jpg
+        └─ ACME COYOTEVISION 09171949
+             └─ 1.jpg
+
+#### Image processing
 
 It is recommended to resize the wallpapers to the resolution of the output and color adjust with dedicated tools like imagemagick or gimp.
 
@@ -106,7 +130,9 @@ Please include a verbose log from you terminal by running with `RUST_BACKTRACE=1
     $ export RUST_LOG=info,multibg_wayland=trace
     $ multibg-wayland ~/my_wallpapers
 
-If using the --gpu option also consider installing Vulkan validation layers from your distro. It which will be automatically enabled at the log levels defined above.
+If reporting bugs with the `--gpu` option also consider installing Vulkan validation layers from your distro. It which will be automatically enabled at the log levels defined above.
+
+If diagnosing bugs related to using per-output wallpaper directories named using the output make-model-serial strings, then please note these make-model-serial strings are redacted from the logs by default for privacy reasons. Set the unstable `MULTIBG_DEBUG_SHOW_SERIALS` environment variable to see them.
 
 ## Alternatives
 

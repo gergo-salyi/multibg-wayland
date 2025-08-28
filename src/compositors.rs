@@ -24,6 +24,11 @@ pub enum Compositor {
     Sway,
 }
 
+pub struct OutputInfo {
+    pub name: String,
+    pub make_model_serial: String,
+}
+
 impl Compositor {
     pub fn from_env() -> Option<Compositor> {
         Compositor::from_xdg_desktop_var("XDG_SESSION_DESKTOP")
@@ -68,6 +73,26 @@ impl Compositor {
             None
         }
     }
+
+    pub fn list_outputs(&self) -> Vec<OutputInfo> {
+        match self {
+            Compositor::Sway =>
+                sway::SwayConnectionTask::new().request_outputs(),
+            Compositor::Hyprland =>
+                hyprland::HyprlandConnectionTask::new().request_outputs(),
+            Compositor::Niri => match get_niri_version() {
+                Ok(niri_verison) => if niri_verison >= niri_ver(25, 5) {
+                    niri2505::NiriConnectionTask::new().request_outputs()
+                } else {
+                    niri2502::NiriConnectionTask::new().request_outputs()
+                },
+                Err(e) => {
+                    warn!("Failed to get niri version: {e:#}");
+                    niri2505::NiriConnectionTask::new().request_outputs()
+                }
+            }
+        }
+    }
 }
 
 // impl From<&str> for Compositor {
@@ -99,9 +124,9 @@ impl EventSender {
 
 trait CompositorInterface: Send + Sync {
     fn request_visible_workspaces(&mut self) -> Vec<WorkspaceVisible>;
+    fn request_outputs(&mut self) -> Vec<OutputInfo>;
     fn subscribe_event_loop(self, event_sender: EventSender);
 }
-
 
 pub struct ConnectionTask {
     tx: Sender<WorkspaceVisible>,
@@ -210,6 +235,13 @@ impl ConnectionTask {
             self.waker.wake();
         }
     }
+
+    pub fn request_make_model_serial(&mut self, output_name: &str) -> String {
+        self.interface.request_outputs().into_iter()
+            .find(|output_info| output_info.name == output_name)
+            .map(|output_info| output_info.make_model_serial)
+            .unwrap_or_default()
+    }
 }
 
 #[derive(Debug)]
@@ -253,4 +285,12 @@ fn parse_niri_version(version_str: &str) -> Option<u64> {
 
 fn niri_ver(major: u32, minor: u32) -> u64 {
     ((major as u64) << 32) | (minor as u64)
+}
+
+fn make_model_serial(make: &str, model: &str, serial: &str) -> String {
+    [make, model, serial].into_iter()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<&str>>()
+        .join(" ")
 }

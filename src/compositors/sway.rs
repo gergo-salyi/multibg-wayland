@@ -1,5 +1,12 @@
-use super::{CompositorInterface, EventSender, WorkspaceVisible};
 use swayipc::{Connection, Event, EventType, WorkspaceChange};
+
+use super::{
+    CompositorInterface,
+    EventSender,
+    make_model_serial,
+    OutputInfo,
+    WorkspaceVisible,
+};
 
 pub struct SwayConnectionTask {
     sway_conn: Connection,
@@ -17,15 +24,27 @@ impl SwayConnectionTask {
 
 impl CompositorInterface for SwayConnectionTask {
     fn request_visible_workspaces(&mut self) -> Vec<WorkspaceVisible> {
-        self.sway_conn
-            .get_workspaces()
-            .unwrap()
+        self.sway_conn.get_workspaces().unwrap()
             .into_iter()
             .filter(|w| w.visible)
             .map(|workspace| WorkspaceVisible {
                 output: workspace.output,
                 workspace_name: workspace.name,
                 workspace_number: workspace.num,
+            })
+            .collect()
+    }
+
+    fn request_outputs(&mut self) -> Vec<OutputInfo> {
+        self.sway_conn.get_outputs().unwrap()
+            .into_iter()
+            .map(|output| OutputInfo {
+                name: output.name,
+                make_model_serial: make_model_serial(
+                    output.make.as_str(),
+                    output.model.as_str(),
+                    output.serial.as_str(),
+                ),
             })
             .collect()
     }

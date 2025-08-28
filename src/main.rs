@@ -7,6 +7,7 @@ mod signal;
 mod wayland;
 
 use std::{
+    env,
     io,
     os::fd::AsFd,
     path::{Path, PathBuf},
@@ -63,6 +64,7 @@ struct State {
     color_transform: ColorTransform,
     dmabuf_state: DmabufState,
     gpu: Option<Gpu>,
+    show_serials: bool,
 }
 
 impl State {
@@ -96,7 +98,21 @@ fn run() -> anyhow::Result<()> {
 
     info!(concat!(env!("CARGO_PKG_NAME"), " ", env!("CARGO_PKG_VERSION")));
 
+    let show_serials = env::var_os("MULTIBG_DEBUG_SHOW_SERIALS").is_some();
+
     let cli = Cli::parse();
+
+    let compositor = cli.compositor
+        .or_else(Compositor::from_env)
+        .unwrap_or(Compositor::Sway);
+
+    if cli.list_outputs {
+        for output in compositor.list_outputs() {
+            println!("{}: '{}'", output.name, output.make_model_serial);
+        }
+        return Ok(())
+    }
+
     let wallpaper_dir = Path::new(&cli.wallpaper_dir).canonicalize().unwrap();
     let brightness = cli.brightness.unwrap_or(0);
     let contrast = cli.contrast.unwrap_or(0.0);
@@ -157,10 +173,6 @@ fn run() -> anyhow::Result<()> {
     let (tx, rx) = channel();
     let waker = Arc::new(Waker::new().unwrap());
 
-    let compositor = cli.compositor
-        .or_else(Compositor::from_env)
-        .unwrap_or(Compositor::Sway);
-
     let mut state = State {
         compositor_state,
         registry_state,
@@ -177,6 +189,7 @@ fn run() -> anyhow::Result<()> {
         color_transform,
         dmabuf_state,
         gpu,
+        show_serials,
     };
 
     event_queue.roundtrip(&mut state).unwrap();

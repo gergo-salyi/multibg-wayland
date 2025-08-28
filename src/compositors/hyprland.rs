@@ -10,7 +10,13 @@ use std::{
 use log::debug;
 use serde::Deserialize;
 
-use super::{CompositorInterface, EventSender, WorkspaceVisible};
+use super::{
+    CompositorInterface,
+    EventSender,
+    make_model_serial,
+    OutputInfo,
+    WorkspaceVisible,
+};
 
 pub struct HyprlandConnectionTask {}
 
@@ -23,6 +29,19 @@ impl HyprlandConnectionTask {
 impl CompositorInterface for HyprlandConnectionTask {
     fn request_visible_workspaces(&mut self) -> Vec<WorkspaceVisible> {
         current_state().visible_workspaces
+    }
+
+    fn request_outputs(&mut self) -> Vec<OutputInfo> {
+        monitors().into_iter()
+            .map(|monitor| OutputInfo {
+                name: monitor.name,
+                make_model_serial: make_model_serial(
+                    &monitor.make,
+                    &monitor.model,
+                    &monitor.serial,
+                )
+            })
+            .collect()
     }
 
     fn subscribe_event_loop(self, event_sender: EventSender) {
@@ -114,22 +133,9 @@ fn socket_dir_path() -> PathBuf {
 }
 
 fn current_state() -> CurrentState {
-    let mut socket = socket_dir_path();
-    socket.push(".socket.sock");
-    let mut connection = UnixStream::connect(socket)
-        .expect("Failed to connect to Hyprland requests socket");
-    connection.write_all(b"j/monitors")
-        .expect("Failed to send Hyprland monitors requests");
-    let mut buf = Vec::with_capacity(2000);
-    // This socket .socket.sock for hyprctl-like requests
-    // only allows one round trip with a single or batched commands
-    let read = connection.read_to_end(&mut buf)
-        .expect("Failed to receive Hyprland monitors response");
-    let monitors: Vec<Monitor> = serde_json::from_slice(&buf[..read])
-        .expect("Failed to parse Hyprland monitors response");
     let mut active_monitor = String::new();
     let mut visible_workspaces = Vec::new();
-    for monitor in monitors {
+    for monitor in monitors() {
         if monitor.focused {
             active_monitor = monitor.name.clone();
         }
@@ -142,6 +148,22 @@ fn current_state() -> CurrentState {
     CurrentState { active_monitor, visible_workspaces }
 }
 
+fn monitors() -> Vec<Monitor> {
+    let mut socket = socket_dir_path();
+    socket.push(".socket.sock");
+    let mut connection = UnixStream::connect(socket)
+        .expect("Failed to connect to Hyprland requests socket");
+    connection.write_all(b"j/monitors")
+        .expect("Failed to send Hyprland monitors requests");
+    let mut buf = Vec::with_capacity(2000);
+    // This socket .socket.sock for hyprctl-like requests
+    // only allows one round trip with a single or batched commands
+    let read = connection.read_to_end(&mut buf)
+        .expect("Failed to receive Hyprland monitors response");
+    serde_json::from_slice(&buf[..read])
+        .expect("Failed to parse Hyprland monitors response")
+}
+
 struct CurrentState {
     active_monitor: String,
     visible_workspaces: Vec<WorkspaceVisible>,
@@ -150,6 +172,9 @@ struct CurrentState {
 #[derive(Deserialize)]
 struct Monitor {
     name: String,
+    make: String,
+    model: String,
+    serial: String,
     #[serde(rename = "activeWorkspace")]
     active_workspace: ActiveWorkspace,
     focused: bool,

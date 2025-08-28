@@ -61,6 +61,7 @@ const MAX_FDS_OUT: usize = 28;
 
 pub struct BackgroundLayer {
     pub output_name: String,
+    output_make_model_serial: String,
     width: i32,
     height: i32,
     layer: LayerSurface,
@@ -435,6 +436,9 @@ impl OutputHandler for State {
             return
         };
 
+        let output_make_model_serial = self.compositor_connection_task
+            .request_make_model_serial(&output_name);
+
         let Some((width, height)) = info.modes.iter()
             .find(|mode| mode.current)
             .map(|mode| mode.dimensions)
@@ -503,6 +507,10 @@ impl OutputHandler for State {
             factor: {}, logical size: {}x{}, transform: {:?}",
             output_name, width, height, integer_scale_factor,
             logical_width, logical_height, info.transform);
+        if self.show_serials {
+            debug!("New output make-model-serial: '{}'",
+                output_make_model_serial);
+        }
 
         let layer = self.layer_shell.create_layer_surface(
             qh,
@@ -588,6 +596,7 @@ impl OutputHandler for State {
         let bg_layer_index = self.background_layers.len();
         self.background_layers.push(BackgroundLayer {
             output_name,
+            output_make_model_serial,
             width,
             height,
             layer,
@@ -954,14 +963,35 @@ fn load_wallpapers(
     mut gpu_uploader: Option<GpuUploader>,
 ) {
     let bg_layer = &state.background_layers[bg_layer_index];
+    let wallpaper_dir = &state.wallpaper_dir;
     let output_name = bg_layer.output_name.as_str();
     let width = bg_layer.width;
     let height = bg_layer.height;
     let transform = bg_layer.transform;
-    let output_dir = state.wallpaper_dir.join(output_name);
+    let output_dir = wallpaper_dir.join(output_name);
     debug!("Looking for wallpapers for new output {} in {:?}",
         output_name, output_dir);
-    let wallpaper_files = match output_wallpaper_files(&output_dir) {
+    let mut wallpaper_files = output_wallpaper_files(&output_dir);
+    if wallpaper_files.is_err() {
+        // Try the other output directory based on make-model-serial
+        let make_model_serial = &bg_layer.output_make_model_serial;
+        if !make_model_serial.is_empty() {
+            let output_dir = wallpaper_dir.join(
+                &bg_layer.output_make_model_serial
+            );
+            if state.show_serials {
+                debug!("Looking for wallpapers for new output {} in {:?}",
+                    output_name, output_dir);
+            } else {
+                debug!("Looking for wallpapers for new output {} in \
+                    'wallpaper_dir/MAKE MODEL SERIAL'", output_name);
+            }
+            if let Ok(files) = output_wallpaper_files(&output_dir) {
+                wallpaper_files = Ok(files);
+            }
+        }
+    }
+    let wallpaper_files = match wallpaper_files {
         Ok(wallpaper_files) => wallpaper_files,
         Err(e) => {
             error!("Failed to get wallpapers for new output {output_name} \

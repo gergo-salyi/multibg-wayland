@@ -1,9 +1,21 @@
-use std::io;
+use std::{
+    collections::HashMap,
+    io,
+};
 
 use log::debug;
-use niri_ipc_25_2_0::{socket::Socket, Event, Request, Response, Workspace};
+use niri_ipc_25_2_0::{
+    Event, Output, Request, Response, Workspace,
+    socket::Socket,
+};
 
-use super::{CompositorInterface, EventSender, WorkspaceVisible};
+use super::{
+    CompositorInterface,
+    EventSender,
+    make_model_serial,
+    OutputInfo,
+    WorkspaceVisible,
+};
 
 pub struct NiriConnectionTask {}
 
@@ -22,6 +34,19 @@ impl CompositorInterface for NiriConnectionTask {
                 workspace_name: workspace.name
                     .unwrap_or_else(|| format!("{}", workspace.idx)),
                 workspace_number: workspace.idx.into(),
+            })
+            .collect()
+    }
+
+    fn request_outputs(&mut self) -> Vec<OutputInfo> {
+        request_outputs().into_values()
+            .map(|output| OutputInfo {
+                name: output.name,
+                make_model_serial: make_model_serial(
+                    &output.make,
+                    &output.model,
+                    output.serial.as_deref().unwrap_or(""),
+                ),
             })
             .collect()
     }
@@ -79,4 +104,17 @@ fn request_workspaces() -> Vec<Workspace> {
         panic!("unexpected response from niri");
     };
     workspaces
+}
+
+fn request_outputs() -> HashMap<String, Output> {
+    let response = Socket::connect()
+        .expect("failed to connect to niri socket")
+        .send(Request::Outputs)
+        .expect("failed to send niri ipc request")
+        .0
+        .expect("niri output query failed");
+    let Response::Outputs(outputs) = response else {
+        panic!("unexpected response from niri");
+    };
+    outputs
 }
