@@ -57,6 +57,7 @@ impl CompositorInterface for HyprlandConnectionTask {
         let mut buf = vec![0u8; 2000];
         let mut filled = 0usize;
         let mut parsed = 0usize;
+        let mut has_workspacev2 = false;
         loop {
             let read = connection.read(&mut buf[filled..]).unwrap();
             if read == 0 {
@@ -84,12 +85,32 @@ impl CompositorInterface for HyprlandConnectionTask {
                     String::from_utf8_lossy(event_name),
                     String::from_utf8_lossy(event_data),
                 );
-                if event_name == b"workspace" {
+                if !has_workspacev2 && event_name == b"workspace" {
                     event_sender.send(WorkspaceVisible {
                         output: active_monitor.clone(),
                         workspace_name: String::from_utf8(event_data.to_vec())
                             .unwrap(),
                         workspace_number: -1,
+                    });
+                } else if event_name == b"workspacev2" {
+                    // This is a bit hacky to detect support for "workspacev2"
+                    // events here, as we might got "workspace" and sent a
+                    // { workspace_number: -1 } before we got here.
+                    // But it shouldn't really matter, it will get corrected
+                    // by sending a duplicate now and setting has_workspacev2
+                    has_workspacev2 = true;
+                    let comma_pos = event_data.iter()
+                        .position(|&b| b == b',').unwrap();
+                    let workspace_number = std::str::from_utf8(
+                        &event_data[..comma_pos]
+                    ).unwrap().parse().unwrap();
+                    let workspace_name = String::from_utf8(
+                        event_data[comma_pos+1..].to_vec()
+                    ).unwrap();
+                    event_sender.send(WorkspaceVisible {
+                        output: active_monitor.clone(),
+                        workspace_name,
+                        workspace_number,
                     });
                 } else if event_name == b"focusedmon" {
                     let comma_pos = event_data.iter()
@@ -142,7 +163,7 @@ fn current_state() -> CurrentState {
         visible_workspaces.push(WorkspaceVisible {
             output: monitor.name,
             workspace_name: monitor.active_workspace.name,
-            workspace_number: -1,
+            workspace_number: monitor.active_workspace.id.unwrap_or(-1),
         });
     }
     CurrentState { active_monitor, visible_workspaces }
@@ -182,5 +203,6 @@ struct Monitor {
 
 #[derive(Deserialize)]
 struct ActiveWorkspace {
+    id: Option<i32>,
     name: String,
 }
