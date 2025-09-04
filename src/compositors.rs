@@ -1,6 +1,7 @@
 mod hyprland;
 mod niri2502;
 mod niri2505;
+mod niri2508;
 mod sway;
 
 use std::{
@@ -81,14 +82,18 @@ impl Compositor {
             Compositor::Hyprland =>
                 hyprland::HyprlandConnectionTask::new().request_outputs(),
             Compositor::Niri => match get_niri_version() {
-                Ok(niri_verison) => if niri_verison >= niri_ver(25, 5) {
-                    niri2505::NiriConnectionTask::new().request_outputs()
-                } else {
-                    niri2502::NiriConnectionTask::new().request_outputs()
+                Ok(niri_verison) => {
+                    if niri_verison >= niri_ver(25, 8) {
+                        niri2508::NiriConnectionTask::new().request_outputs()
+                    } else if niri_verison >= niri_ver(25, 5) {
+                        niri2505::NiriConnectionTask::new().request_outputs()
+                    } else {
+                        niri2502::NiriConnectionTask::new().request_outputs()
+                    }
                 },
                 Err(e) => {
                     warn!("Failed to get niri version: {e:#}");
-                    niri2505::NiriConnectionTask::new().request_outputs()
+                    niri2508::NiriConnectionTask::new().request_outputs()
                 }
             }
         }
@@ -146,14 +151,18 @@ impl ConnectionTask {
                 hyprland::HyprlandConnectionTask::new()
             ),
             Compositor::Niri => match get_niri_version() {
-                Ok(niri_verison) => if niri_verison >= niri_ver(25, 5) {
-                    Box::new(niri2505::NiriConnectionTask::new())
-                } else {
-                    Box::new(niri2502::NiriConnectionTask::new())
+                Ok(niri_verison) => {
+                    if niri_verison >= niri_ver(25, 8) {
+                        Box::new(niri2508::NiriConnectionTask::new())
+                    } else if niri_verison >= niri_ver(25, 5) {
+                        Box::new(niri2505::NiriConnectionTask::new())
+                    } else {
+                        Box::new(niri2502::NiriConnectionTask::new())
+                    }
                 },
                 Err(e) => {
                     warn!("Failed to get niri version: {e:#}");
-                    Box::new(niri2505::NiriConnectionTask::new())
+                    Box::new(niri2508::NiriConnectionTask::new())
                 }
             }
         };
@@ -184,16 +193,21 @@ impl ConnectionTask {
                     composer_interface.subscribe_event_loop(event_sender);
                 }
                 Compositor::Niri => match get_niri_version() {
-                    Ok(niri_verison) => if niri_verison >= niri_ver(25, 5) {
-                        niri2505::NiriConnectionTask::new()
-                            .subscribe_event_loop(event_sender)
-                    } else {
-                        niri2502::NiriConnectionTask::new()
-                            .subscribe_event_loop(event_sender)
+                    Ok(niri_verison) => {
+                        if niri_verison >= niri_ver(25, 8) {
+                            niri2508::NiriConnectionTask::new()
+                                .subscribe_event_loop(event_sender)
+                        } else if niri_verison >= niri_ver(25, 5) {
+                            niri2505::NiriConnectionTask::new()
+                                .subscribe_event_loop(event_sender)
+                        } else {
+                            niri2502::NiriConnectionTask::new()
+                                .subscribe_event_loop(event_sender)
+                        }
                     },
                     Err(e) => {
                         warn!("Failed to get niri version: {e:#}");
-                        niri2505::NiriConnectionTask::new()
+                        niri2508::NiriConnectionTask::new()
                             .subscribe_event_loop(event_sender)
                     }
                 }

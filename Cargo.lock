@@ -121,15 +121,9 @@ checksum = "1e4b40c7323adcfc0a41c4b88143ed58346ff65a288fc144329c5c45e05d70c6"
 
 [[package]]
 name = "bitflags"
-version = "1.3.2"
+version = "2.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
-
-[[package]]
-name = "bitflags"
-version = "2.9.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34efbcccd345379ca2868b2b2c9d3782e9cc58ba87bc7d79d5b53d9c9ae6f25d"
+checksum = "2261d10cca569e4643e526d8dc2e62e433cc8aba21ab764233731f8d369bf394"
 
 [[package]]
 name = "bitreader"
@@ -172,10 +166,11 @@ checksum = "d71b6127be86fdcfddb610f7182ac57211d4b18a3e9c82eb2d17662f2227ad6a"
 
 [[package]]
 name = "cc"
-version = "1.2.34"
+version = "1.2.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "42bc4aea80032b7bf409b0bc7ccad88853858911b7713a8062fdc0623867bedc"
+checksum = "590f9024a68a8c40351881787f1934dc11afd69090f5edb6831464694d836ea3"
 dependencies = [
+ "find-msvc-tools",
  "shlex",
 ]
 
@@ -197,9 +192,9 @@ checksum = "2fd1289c04a9ea8cb22300a459a72a385d7c73d3259e2ed7dcb2af674838cfa9"
 
 [[package]]
 name = "clap"
-version = "4.5.46"
+version = "4.5.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2c5e4fcf9c21d2e544ca1ee9d8552de13019a42aa7dbf32747fa7aaf1df76e57"
+checksum = "7eac00902d9d136acd712710d71823fb8ac8004ca445a89e73a41d45aa712931"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -207,9 +202,9 @@ dependencies = [
 
 [[package]]
 name = "clap_builder"
-version = "4.5.46"
+version = "4.5.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fecb53a0e6fcfb055f686001bc2e2592fa527efaf38dbe81a6a9563562e57d41"
+checksum = "2ad9bbf750e73b5884fb8a211a9424a1906c1e156724260fdae972f31d70e1d6"
 dependencies = [
  "anstream",
  "anstyle",
@@ -219,9 +214,9 @@ dependencies = [
 
 [[package]]
 name = "clap_derive"
-version = "4.5.45"
+version = "4.5.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "14cb31bb0a7d536caef2639baa7fad459e15c3144efefa6dbd1c84562c4739f6"
+checksum = "bbfd7eae0b0f1a6e63d4b13c9c478de77c2eb546fba158ad50b4203dc24b9f9c"
 dependencies = [
  "heck",
  "proc-macro2",
@@ -300,7 +295,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "80c3f80814db85397819d464bb553268992c393b4b3b5554b89c1655996d5926"
 dependencies = [
  "av-data",
- "bitflags 2.9.3",
+ "bitflags",
  "dav1d-sys",
  "static_assertions",
 ]
@@ -395,14 +390,34 @@ dependencies = [
 
 [[package]]
 name = "fast_image_resize"
-version = "5.2.1"
+version = "5.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a489605b43d09f8bd53b390ef1feb1610e34527456f6b9407263027b80a97b44"
+checksum = "1bd1eda71e8af93f8b00e189404235d82f4de77ea4a0d182b44a7f03994d647c"
 dependencies = [
  "cfg-if",
  "document-features",
  "num-traits",
- "thiserror 1.0.69",
+ "thiserror 2.0.16",
+]
+
+[[package]]
+name = "fax"
+version = "0.2.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f05de7d48f37cd6730705cbca900770cab77a89f413d23e100ad7fad7795a0ab"
+dependencies = [
+ "fax_derive",
+]
+
+[[package]]
+name = "fax_derive"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a0aca10fb742cb43f9e7bb8467c91aa9bcb8e3ffbc6a6f7389bb93ffc920577d"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
@@ -413,6 +428,12 @@ checksum = "1e6853b52649d4ac5c0bd02320cddc5ba956bdb407c4b75a2c6b75bf51500f8c"
 dependencies = [
  "simd-adler32",
 ]
+
+[[package]]
+name = "find-msvc-tools"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e178e4fba8a2726903f6ba98a6d221e76f9c12c650d5dc0e6afdc50677b49650"
 
 [[package]]
 name = "flate2"
@@ -467,9 +488,9 @@ checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
 name = "image"
-version = "0.25.6"
+version = "0.25.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "db35664ce6b9810857a38a906215e75a9c879f0696556a39f59c62829710251a"
+checksum = "529feb3e6769d234375c4cf1ee2ce713682b8e76538cb13f9fc23e1400a591e7"
 dependencies = [
  "bytemuck",
  "byteorder-lite",
@@ -478,6 +499,7 @@ dependencies = [
  "exr",
  "gif",
  "image-webp",
+ "moxcms",
  "mp4parse",
  "num-traits",
  "png",
@@ -544,12 +566,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "jpeg-decoder"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "00810f1d8b74be64b13dbf3db89ac67740615d6c891f0e7b6179326533011a07"
-
-[[package]]
 name = "lebe"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -585,9 +601,9 @@ checksum = "f5e54036fe321fd421e10d732f155734c4e4afd610dd556d9a82833ab3ee0bed"
 
 [[package]]
 name = "log"
-version = "0.4.27"
+version = "0.4.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "13dc2df351e3202783a1fe0d44375f7295ffb4049267b0f3018346dc122a1d94"
+checksum = "34080505efa8e45a4b816c349525ebe327ceaa8559756f0356cba97ef3bf7432"
 
 [[package]]
 name = "memchr"
@@ -612,6 +628,16 @@ checksum = "1fa76a2c86f704bdb222d66965fb3d63269ce38518b83cb0575fca855ebb6316"
 dependencies = [
  "adler2",
  "simd-adler32",
+]
+
+[[package]]
+name = "moxcms"
+version = "0.7.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ddd32fa8935aeadb8a8a6b6b351e40225570a37c43de67690383d87ef170cd08"
+dependencies = [
+ "num-traits",
+ "pxfm",
 ]
 
 [[package]]
@@ -640,7 +666,8 @@ dependencies = [
  "image",
  "libc",
  "log",
- "multibg-wayland-niri-ipc",
+ "multibg-wayland-niri-ipc 0.250200.0",
+ "multibg-wayland-niri-ipc 0.250501.0",
  "niri-ipc",
  "rustix",
  "scopeguard",
@@ -661,10 +688,20 @@ dependencies = [
 ]
 
 [[package]]
-name = "niri-ipc"
-version = "25.5.1"
+name = "multibg-wayland-niri-ipc"
+version = "0.250501.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc3e165f7854b2f83054a2e8f7024baa49666ad25cdb95b8fb9fd17c48045605"
+checksum = "9f14219c71e463386561862f41171c899598e4745b77341e3642f255e1157c2e"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "niri-ipc"
+version = "25.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a336854faf3818ec2399152c994796e2e8d723867f9987f1e0cfeaae1dadaed1"
 dependencies = [
  "serde",
  "serde_json",
@@ -740,11 +777,11 @@ checksum = "7edddbd0b52d732b21ad9a5fab5c704c14cd949e5e9a1ec5929a24fded1b904c"
 
 [[package]]
 name = "png"
-version = "0.17.16"
+version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "82151a2fc869e011c153adc57cf2789ccb8d9906ce52c0b39a6b5697749d7526"
+checksum = "97baced388464909d42d89643fe4361939af9b7ce7a31ee32a168f832a70f2a0"
 dependencies = [
- "bitflags 1.3.2",
+ "bitflags",
  "crc32fast",
  "fdeflate",
  "flate2",
@@ -773,6 +810,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "89ae43fd86e4158d6db51ad8e2b80f313af9cc74f5c0e03ccb87de09998732de"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "pxfm"
+version = "0.1.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6e790881194f6f6e86945f0a42a6981977323669aeb6c40e9c7ec253133b96f8"
+dependencies = [
+ "num-traits",
 ]
 
 [[package]]
@@ -853,7 +899,7 @@ version = "1.0.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "11181fbabf243db407ef8df94a6ce0b2f9a733bd8be4ad02b4eda9602296cac8"
 dependencies = [
- "bitflags 2.9.3",
+ "bitflags",
  "errno",
  "libc",
  "linux-raw-sys",
@@ -937,7 +983,7 @@ version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0512da38f5e2b31201a93524adb8d3136276fa4fe4aafab4e1f727a82b534cc0"
 dependencies = [
- "bitflags 2.9.3",
+ "bitflags",
  "cursor-icon",
  "libc",
  "log",
@@ -1062,13 +1108,16 @@ dependencies = [
 
 [[package]]
 name = "tiff"
-version = "0.9.1"
+version = "0.10.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ba1310fcea54c6a9a4fd1aad794ecc02c31682f6bfbecdf460bf19533eed1e3e"
+checksum = "af9605de7fee8d9551863fd692cce7637f548dbd9db9180fcc07ccc6d26c336f"
 dependencies = [
+ "fax",
  "flate2",
- "jpeg-decoder",
+ "half",
+ "quick-error",
  "weezl",
+ "zune-jpeg",
 ]
 
 [[package]]
@@ -1148,7 +1197,7 @@ version = "0.31.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c66a47e840dc20793f2264eb4b3e4ecb4b75d91c0dd4af04b456128e0bdd449d"
 dependencies = [
- "bitflags 2.9.3",
+ "bitflags",
  "rustix",
  "wayland-backend",
  "wayland-scanner",
@@ -1160,7 +1209,7 @@ version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "625c5029dbd43d25e6aa9615e88b829a5cad13b2819c4ae129fdbb7c31ab4c7e"
 dependencies = [
- "bitflags 2.9.3",
+ "bitflags",
  "cursor-icon",
  "wayland-backend",
 ]
@@ -1182,7 +1231,7 @@ version = "0.32.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "efa790ed75fbfd71283bd2521a1cfdc022aabcc28bdcff00851f9e4ae88d9901"
 dependencies = [
- "bitflags 2.9.3",
+ "bitflags",
  "wayland-backend",
  "wayland-client",
  "wayland-scanner",
@@ -1194,7 +1243,7 @@ version = "20250721.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40a1f863128dcaaec790d7b4b396cc9b9a7a079e878e18c47e6c2d2c5a8dcbb1"
 dependencies = [
- "bitflags 2.9.3",
+ "bitflags",
  "wayland-backend",
  "wayland-client",
  "wayland-protocols",
@@ -1207,7 +1256,7 @@ version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2dfe33d551eb8bffd03ff067a8b44bb963919157841a99957151299a6307d19c"
 dependencies = [
- "bitflags 2.9.3",
+ "bitflags",
  "wayland-backend",
  "wayland-client",
  "wayland-protocols",
@@ -1220,7 +1269,7 @@ version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "efd94963ed43cf9938a090ca4f7da58eb55325ec8200c3848963e98dc25b78ec"
 dependencies = [
- "bitflags 2.9.3",
+ "bitflags",
  "wayland-backend",
  "wayland-client",
  "wayland-protocols",
