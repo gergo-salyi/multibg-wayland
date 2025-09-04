@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.4 - 2025-08-28
+- Fix breakage with new Niri compositor version 25.08 [#20](https://github.com/gergo-salyi/multibg-wayland/issues/20)
+- Update dependencies
+
 ## 0.2.3 - 2025-08-28
 - Add support for using output make-model-serial strings as per-output wallpaper directory names [#18](https://github.com/gergo-salyi/multibg-wayland/issues/18)
 - Add support for selecting wallpapers of named workspaces by workspace number as a fallback instead of the workspace name [#19](https://github.com/gergo-salyi/multibg-wayland/pull/19)
