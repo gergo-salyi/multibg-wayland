@@ -11,7 +11,10 @@ use fast_image_resize::{
     FilterType, PixelType, Resizer, ResizeAlg, ResizeOptions,
     images::Image,
 };
-use image::{ColorType, DynamicImage, ImageBuffer, ImageDecoder, ImageReader};
+use image::{
+    ColorType, DynamicImage, ImageBuffer, ImageDecoder, ImageReader,
+    imageops::colorops::{brighten_in_place, contrast_in_place},
+};
 use log::{debug, error, warn};
 use smithay_client_toolkit::reexports::client::protocol::wl_shm;
 
@@ -133,10 +136,10 @@ pub fn load_wallpaper(
         .context("Failed to decode image")?;
     if let ColorTransform::Legacy { brightness, contrast } = color_transform {
         if contrast != 0.0 {
-            image = image.adjust_contrast(contrast)
+            contrast_in_place(&mut image, contrast);
         }
         if brightness != 0 {
-            image = image.brighten(brightness)
+            brighten_in_place(&mut image, brightness);
         }
     }
     let mut image = image.into_rgb8();
