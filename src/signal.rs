@@ -200,7 +200,7 @@ extern "C" fn handle_other_signals(signum: c_int) {
     }
 }
 
-struct ErrnoGuard(i32);
+struct ErrnoGuard(c_int);
 
 impl ErrnoGuard {
     unsafe fn new() -> ErrnoGuard {
@@ -263,13 +263,13 @@ extern "C" {
 
 /// Returns the platform-specific value of errno
 #[inline]
-fn errno() -> i32 {
-    unsafe { (*errno_location()) as i32 }
+fn errno() -> c_int {
+    unsafe { *errno_location() }
 }
 
 /// Sets the platform-specific value of errno
 // needed for readdir and syscall!
 #[inline]
-fn set_errno(e: i32) {
-    unsafe { *errno_location() = e as c_int }
+fn set_errno(e: c_int) {
+    unsafe { *errno_location() = e }
 }

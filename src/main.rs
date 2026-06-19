@@ -1,3 +1,6 @@
+#![deny(unused_must_use)]
+#![allow(clippy::uninlined_format_args)]
+
 mod cli;
 mod compositors;
 mod gpu;

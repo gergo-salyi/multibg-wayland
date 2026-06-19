@@ -1184,7 +1184,7 @@ fn handle_dmabuf_feedback(
     let format_table = feedback.format_table();
     let tranches = feedback.tranches();
     debug!("Linux DMA-BUF feedback for output {}, main device {}:{}, \
-        {} format table entries, {} tranches", &bg_layer.output_name,
+        {} format table entries, {} tranches", bg_layer.output_name,
         major(main_dev), minor(main_dev),
         format_table.len(), tranches.len());
     if tranches.is_empty() {
