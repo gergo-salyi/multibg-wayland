@@ -1168,6 +1168,7 @@ fn load_wallpapers(
             .collect::<Vec<_>>().join(", "));
     state.background_layers[bg_layer_index].workspace_backgrounds =
         workspace_backgrounds;
+    malloc_trim_all();
     print_memory_stats(&state.background_layers);
 }
 
@@ -1295,4 +1296,18 @@ fn wallpaper_dmabuf(
         canon_path,
         canon_modified,
     }))
+}
+
+fn malloc_trim_all() {
+    // define a no-op fallback
+    // and shadow it from libc if malloc_trim is defined there
+    // based on https://users.rust-lang.org/t/conditionally-compile-code-based-on-presence-or-absence-of-a-symbol-in-a-dependency/100803/3
+    #![allow(dead_code, deprecated, unused_imports)]
+    unsafe extern "C" fn malloc_trim(_pad: libc::size_t) -> libc::c_int {
+        0
+    }
+    {
+        use libc::*;
+        let _ = unsafe { malloc_trim(0) };
+    }
 }
