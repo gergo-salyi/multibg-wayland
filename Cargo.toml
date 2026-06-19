@@ -23,7 +23,8 @@ libc = "0.2.171"
 log = "0.4.21"
 niri-ipc-25-2-0 = { package = "multibg-wayland-niri-ipc", version = "=0.250200.0" }
 niri-ipc-25-5-1 = { package = "multibg-wayland-niri-ipc", version = "=0.250501.0" }
-niri-ipc-25-8-0 = { package = "niri-ipc", version = "=25.8.0" }
+niri-ipc-25-8-0 = { package = "multibg-wayland-niri-ipc", version = "=0.250800.0" }
+niri-ipc-26-4-0 = { package = "niri-ipc", version = "=26.4.0" }
 rustix = { version = "1.0.8", features = ["event", "fs", "pipe"] }
 scopeguard = "1.2.0"
 serde = { version = "1.0.219", features = ["derive"] }
