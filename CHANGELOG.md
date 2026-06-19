@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.5 - 2026-06-19
+- Fix breakage with new Niri compositor version 25.11 and 26.04 [#22](https://github.com/gergo-salyi/multibg-wayland/issues/22)
+- Minor optimizations in brightness and contrast operations and idle memory use
+- Update dependencies
+
 ## 0.2.4 - 2025-09-04
 - Fix breakage with new Niri compositor version 25.08 [#20](https://github.com/gergo-salyi/multibg-wayland/issues/20)
 - Update dependencies

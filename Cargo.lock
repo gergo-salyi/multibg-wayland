@@ -617,7 +617,7 @@ dependencies = [
 
 [[package]]
 name = "multibg-wayland"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "anyhow",
  "ash",
