@@ -84,7 +84,8 @@ fn find_workspace(workspaces: &[Workspace], id: u64) -> WorkspaceVisible {
 }
 
 fn request_event_stream() -> impl FnMut() -> Result<Event, io::Error> {
-    let mut socket = Socket::connect().expect("failed to connect to niri socket");
+    let mut socket = Socket::connect()
+        .expect("failed to connect to niri socket");
     let Ok(Ok(Response::Handled)) = socket.send(Request::EventStream) else {
         panic!("failed to subscribe to event stream");
     };

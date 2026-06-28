@@ -86,7 +86,11 @@ impl Drop for BackgroundLayer {
 }
 
 impl BackgroundLayer {
-    pub fn draw_workspace_bg(&mut self, workspace_name: &str, workspace_number: i32) {
+    pub fn draw_workspace_bg(
+        &mut self,
+        workspace_name: &str,
+        workspace_number: i32,
+    ) {
         if !self.configured {
             error!("Cannot draw wallpaper image on the not yet configured \
                 layer for output: {}", self.output_name);
@@ -94,12 +98,12 @@ impl BackgroundLayer {
         }
 
         let Some(workspace_bg) = self.workspace_backgrounds.iter()
-            .find(|workspace_bg| workspace_bg.workspace_name == workspace_name)
+            .find(|bg| bg.workspace_name == workspace_name)
             .or_else(|| self.workspace_backgrounds.iter()
-                .find(|workspace_bg| workspace_bg.workspace_number == workspace_number)
+                .find(|bg| bg.workspace_number == workspace_number)
             )
             .or_else(|| self.workspace_backgrounds.iter()
-                .find(|workspace_bg| workspace_bg.workspace_name == "_default")
+                .find(|bg| bg.workspace_name == "_default")
             )
         else {
             error!(

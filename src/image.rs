@@ -71,7 +71,13 @@ pub fn output_wallpaper_files(
         let canon_modified = canon_metadata.modified().unwrap()
             .duration_since(UNIX_EPOCH).unwrap()
             .as_nanos();
-        ret.push(WallpaperFile { path, workspace, workspace_number, canon_path, canon_modified });
+        ret.push(WallpaperFile {
+            path,
+            workspace,
+            workspace_number,
+            canon_path,
+            canon_modified,
+        });
     }
     Ok(ret)
 }

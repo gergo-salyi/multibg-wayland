@@ -2,7 +2,7 @@
 #   rustfmt --check src/file.rs
 
 doc_comment_code_block_width = 80
-edition = "2021"
+edition = "2024"
 format_code_in_doc_comments = true
 format_macro_matchers = true
 format_strings = true
@@ -12,7 +12,7 @@ match_arm_blocks = false
 match_block_trailing_comma = true
 max_width = 80
 reorder_impl_items = true
-style_edition = "2021"
+style_edition = "2024"
 trailing_semicolon = false
 use_field_init_shorthand = true
 use_small_heuristics = "Max"
