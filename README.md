@@ -87,11 +87,11 @@ Now the names of the per-output wallpaper directories can be changed to the outp
 
 #### Image processing
 
-It is recommended to resize the wallpapers to the resolution of the output and color adjust with dedicated tools like imagemagick or gimp.
+It is recommended to resize the wallpapers to the resolution of the output and color adjust with dedicated tools like imagemagick or GIMP or Krita.
 
-This app can do _some_ imperfect image processing at the expense of startup time. Wallpaper images with different resolution than their output are resized (with high quality filter but incorrect gamma) to _fill_ the output. Contrast and brightness (on some bad arbitrary scale) might be adjusted such as:
+This app can do _some_ imperfect image processing at the expense of startup time. Wallpaper images with different resolution than their output are resized (with high quality filter but incorrect gamma) to _fill_ the output. Contrast and brightness might be adjusted with the `--level-*` options similar to how the levels filter works in GIMP or Krita:
 
-    $ multibg-wayland --contrast=-25 --brightness=-60 ~/my_wallpapers
+    $ multibg-wayland --level-output-max=0.4 ~/my_wallpapers
 
 ### Resource usage
 

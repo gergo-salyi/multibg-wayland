@@ -47,7 +47,7 @@ use crate::{
     cli::{Cli, PixelFormat},
     compositors::{Compositor, ConnectionTask, WorkspaceVisible},
     gpu::Gpu,
-    image::ColorTransform,
+    image::{ColorTransform, Levels},
     poll::{Poll, Waker},
     signal::SignalPipe,
     wayland::BackgroundLayer,
@@ -64,7 +64,7 @@ struct State {
     shm_format: Option<wl_shm::Format>,
     background_layers: Vec<BackgroundLayer>,
     compositor_connection_task: ConnectionTask,
-    color_transform: ColorTransform,
+    color_transform: Option<ColorTransform>,
     dmabuf_state: DmabufState,
     gpu: Option<Gpu>,
     show_serials: bool,
@@ -117,13 +117,7 @@ fn run() -> anyhow::Result<()> {
     }
 
     let wallpaper_dir = Path::new(&cli.wallpaper_dir).canonicalize().unwrap();
-    let brightness = cli.brightness.unwrap_or(0);
-    let contrast = cli.contrast.unwrap_or(0.0);
-    let color_transform = if brightness == 0 && contrast == 0.0 {
-        ColorTransform::None
-    } else {
-        ColorTransform::Legacy { brightness, contrast }
-    };
+    let color_transform = cli.levels()?.map(ColorTransform::from_levels);
 
     // ********************************
     //     Initialize wayland client

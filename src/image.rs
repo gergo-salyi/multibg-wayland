@@ -12,17 +12,170 @@ use fast_image_resize::{
     images::Image,
 };
 use image::{
-    ColorType, DynamicImage, ImageBuffer, ImageDecoder, ImageReader,
-    imageops::colorops::{brighten_in_place, contrast_in_place},
+    ColorType, DynamicImage, ImageBuffer, ImageDecoder, ImageReader, Pixel,
 };
 use log::{debug, error, warn};
 use smithay_client_toolkit::reexports::client::protocol::wl_shm;
 
 #[derive(Clone, Copy, PartialEq)]
-pub enum ColorTransform {
-    // Levels { input_max: u8, input_min: u8, output_max: u8, output_min: u8 },
-    Legacy { brightness: i32, contrast: f32 },
-    None,
+pub struct Levels {
+    pub input_min: f32,
+    pub input_max: f32,
+    pub output_min: f32,
+    pub output_max: f32,
+}
+
+impl Levels {
+    pub fn from_legacy(brightness: i32, contrast: f32) -> Self {
+        // Functions from the image crate
+        let max = u8::MAX as f32;
+        let percent = ((100.0 + contrast) / 100.0).powi(2);
+        let do_contrast = |input: u8| -> u8 {
+            let c = input as f32;
+            let d = ((c / max - 0.5) * percent + 0.5) * max;
+            let e = d.clamp(0.0, max);
+            e as u8
+        };
+        let do_brightness = |input: u8| -> u8 {
+            (input as i32 + brightness).clamp(0, u8::MAX as i32) as u8
+        };
+
+        let contrast_clips = |input: u8| -> bool {
+            let c = input as f32;
+            let d = ((c / max - 0.5) * percent + 0.5) * max;
+            let e = d.clamp(0.0, max);
+            e != d
+        };
+        let do_brightness_inv = |output: u8| -> u8 {
+            (output as i32 - brightness).clamp(0, u8::MAX as i32) as u8
+        };
+        let do_contrast_inv_min = |output: u8| -> u8 {
+            let c = output as f32;
+            let d = ((c / max - 0.5) / percent + 0.5) * max;
+            let e = d.clamp(0.0, max);
+            let input_est = e as u8;
+            let input_est_low = input_est.saturating_sub(1);
+            let input_est_high = input_est.saturating_add(2);
+            for input in input_est_low..=input_est_high {
+                if !contrast_clips(input) {
+                    return input
+                }
+            }
+            input_est
+        };
+        let do_contrast_inv_max = |output: u8| -> u8 {
+            let c = (output as f32 + 1.0).clamp(0.0, max);
+            let d = ((c / max - 0.5) / percent + 0.5) * max;
+            let e = d.clamp(0.0, max);
+            let input_est = e as u8;
+            let input_est_low = input_est.saturating_sub(1);
+            let input_est_high = input_est.saturating_add(2);
+            for input in (input_est_low..=input_est_high).rev() {
+                if !contrast_clips(input) {
+                    return input
+                }
+            }
+            input_est.saturating_add(1)
+        };
+
+        // y = do_brightness(do_contrast(x)) is monotonic in input
+        // so 0 and 255 always maps to output_min and output_max
+        let output_min = do_brightness(do_contrast(0));
+        let output_max = do_brightness(do_contrast(255));
+        // find input_min/max which maps to output_min/max without clipping
+        let mut input_min = do_contrast_inv_min(do_brightness_inv(output_min));
+        let mut input_max = do_contrast_inv_max(do_brightness_inv(output_max));
+        if input_max < input_min {
+            let mid = input_min.midpoint(input_max);
+            input_min = mid;
+            input_max = mid;
+        }
+
+        Self {
+            input_min: input_min as f32 / 256.0,
+            input_max: (input_max as f32 + 1.0) / 256.0,
+            output_min: output_min as f32 / 256.0,
+            output_max: (output_max as f32 + 1.0) / 256.0,
+        }
+    }
+}
+
+// Applying levels is just clamping and computing a linear function.
+// We complicate it a lot here to optimize for x86 simd:
+// - starting with 8 bit subpixel samples
+// - move to the [0, ...] sample range by subtracting input_min with saturation
+// - clamp to [0, input_rel_max] sample range by clipping at input_rel_max
+// - unpack to 16-bit 8.8 fixed point values
+//   place the sample value in the high 8 bits
+//   add place the value 128 (0.5 in 8.8 fixed point) in the low 8 bits
+//   to reconstruct from quantization in the [0.0, input_rel_max + 1.0] range
+// - use unsigned 16-bit mulhi to scale with an 8.8 fixed point factor
+//   the low 8 bits of the 16-bit result shall contain
+//   a scaled 8-bit sample in the [0, output_rel_max] sample range
+// - pack the low 8 bits to get the scaled 8-bit sample
+// - invert the input if needed by xoring 0 or !0
+//   this is branchless and allows the use of the unsigned multiplication above
+// - move to the [output_min, output_max] sample range by adding output_off
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct ColorTransform {
+    input_min: u8,
+    input_rel_max: u8,
+    factor: u16, // 8.8 fixed point
+    xor_term: u8,
+    output_off: u8,
+}
+
+impl ColorTransform {
+    pub fn from_levels(levels: Levels) -> Self {
+        // Convert continuous values to sample values
+        let mut input_min = (levels.input_min * 256.0 + 0.5) as u8;
+        let mut input_max = (levels.input_max * 256.0 - 0.5) as u8;
+        let (output_min_f, output_max_f, xor_term) =
+        if levels.output_min <= levels.output_max {
+            (levels.output_min, levels.output_max, 0)
+        } else {
+            (levels.output_max, levels.output_min, !0)
+        };
+        let mut output_min = (output_min_f * 256.0 + 0.5) as u8;
+        let mut output_max = (output_max_f * 256.0 - 0.5) as u8;
+
+        // Deal with the degenerate cases
+        if input_max < input_min {
+            let mid_f = levels.input_min.midpoint(levels.input_max);
+            let mid = (mid_f * 256.0) as u8;
+            input_min = mid;
+            input_max = mid;
+        }
+        if output_max < output_min {
+            let mid_f = levels.output_min.midpoint(levels.output_max);
+            let mid = (mid_f * 256.0) as u8;
+            output_min = mid;
+            output_max = mid;
+        }
+
+        let input_rel_max = input_max - input_min;
+        let output_rel_max = output_max - output_min;
+        let input_range = input_rel_max as f32 + 1.0;
+        let output_range = output_rel_max as f32 + 1.0;
+        let range_ratio = output_range / input_range;
+        let factor = (range_ratio * 256.0 + 0.5) as u16;
+        let output_off = if xor_term == 0 {
+            output_min
+        } else {
+            output_max.wrapping_sub(u8::MAX)
+        };
+        Self { input_min, input_rel_max, factor, xor_term, output_off }
+    }
+
+    fn apply(&self, input: u8) -> u8 {
+        let half_clamped = input.saturating_sub(self.input_min);
+        let clamped = half_clamped.min(self.input_rel_max);
+        let unpacked = ((clamped as u16) << 8) + 128;
+        let scaled = mulhi(unpacked, self.factor);
+        let packed = scaled as u8;
+        let maybe_inverted = packed ^ self.xor_term;
+        maybe_inverted.wrapping_add(self.output_off)
+    }
 }
 
 pub struct WallpaperFile {
@@ -89,7 +242,7 @@ pub fn load_wallpaper(
     surface_height: u32,
     surface_stride: usize,
     surface_format: wl_shm::Format,
-    color_transform: ColorTransform,
+    color_transform: Option<ColorTransform>,
     resizer: &mut Resizer,
 ) -> anyhow::Result<()> {
     let surface_size = surface_stride * surface_height as usize;
@@ -131,24 +284,21 @@ pub fn load_wallpaper(
     if !needs_resize
         && image_color_type == ColorType::Rgb8
         && surface_format == wl_shm::Format::Bgr888
-        && color_transform == ColorTransform::None
+        && color_transform.is_none()
         && surface_row_len == surface_stride
     {
         debug!("Decoding image directly to destination buffer");
         decoder.read_image(dst).context("Failed to decode image")?;
         return Ok(());
     }
-    let mut image = DynamicImage::from_decoder(decoder)
+    let image = DynamicImage::from_decoder(decoder)
         .context("Failed to decode image")?;
-    if let ColorTransform::Legacy { brightness, contrast } = color_transform {
-        if contrast != 0.0 {
-            contrast_in_place(&mut image, contrast);
-        }
-        if brightness != 0 {
-            brighten_in_place(&mut image, brightness);
+    let mut image = image.into_rgb8();
+    if let Some(ct) = color_transform {
+        for (_, _, pixel) in image.enumerate_pixels_mut() {
+            pixel.apply(|subpixel| ct.apply(subpixel))
         }
     }
-    let mut image = image.into_rgb8();
     if needs_resize {
         debug!("Resizing image from {}x{} to {}x{}",
             image_width, image_height,
@@ -245,4 +395,8 @@ unsafe fn bgra_from_rgb(src: &[u8], dst: &mut [u8], pixel_count: usize) {
             dst = dst.add(4);
         }
     }
+}
+
+fn mulhi(left: u16, right: u16) -> u16 {
+    (((left as u32) * (right as u32)) >> 16) as u16
 }
