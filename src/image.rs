@@ -364,7 +364,7 @@ impl WallpaperLoader {
                 &mut dst_image,
                 &ResizeOptions::new()
                     .fit_into_destination(None)
-                    .resize_alg(ResizeAlg::Convolution(FilterType::Lanczos3))
+                    .resize_alg(ResizeAlg::Convolution(FilterType::Mitchell))
             ).context("Failed to resize image")?;
             image = ImageBuffer::from_raw(
                 surface.width,
