@@ -33,7 +33,6 @@ use smithay_client_toolkit::reexports::client::{
     protocol::{
         wl_buffer::WlBuffer,
         wl_output::{self, Transform, WlOutput},
-        wl_shm,
         wl_surface::WlSurface,
     },
 };
@@ -54,7 +53,12 @@ use crate::{
         DRM_FORMAT_XRGB8888, fmt_modifier,
         GpuMemory, GpuUploader, GpuWallpaper,
     },
-    image::{load_wallpaper, output_wallpaper_files, WallpaperFile},
+    image::{
+        output_wallpaper_files,
+        SurfaceLayout,
+        WallpaperLoader,
+        WallpaperFile,
+    },
 };
 
 const MAX_FDS_OUT: usize = 28;
@@ -1003,23 +1007,14 @@ fn load_wallpapers(
             return
         }
     };
-    let shm_format = state.shm_format();
-    let shm_stride = match shm_format {
-        wl_shm::Format::Xrgb8888 => width as usize * 4,
-        wl_shm::Format::Bgr888 => {
-            // Align buffer stride:
-            // - once to 4, because not being aligned to 4 caused
-            //   https://github.com/gergo-salyi/multibg-wayland/issues/6
-            // - and to 3, because not being aligned to 3 caused
-            //   https://github.com/gergo-salyi/multibg-wayland/issues/17
-            // So align stride to 4 * 3 = 12
-            (width as usize * 3).next_multiple_of(12)
-        },
-        _ => unreachable!(),
-    };
-    let shm_size = shm_stride * height as usize;
+    let mut loader = WallpaperLoader::new(state.color_transform);
+    let layout_shm = SurfaceLayout::shm(
+        width as u32,
+        height as u32,
+        state.shm_format(),
+    );
+    let layout_gpu = SurfaceLayout::gpu(width as u32, height as u32);
     let mut workspace_backgrounds = Vec::new();
-    let mut resizer = fast_image_resize::Resizer::new();
     let mut reused_count = 0usize;
     let mut loaded_count = 0usize;
     let mut error_count = 0usize;
@@ -1066,15 +1061,10 @@ fn load_wallpapers(
             continue
         }
         if let Some(uploader) = gpu_uploader.as_mut() {
-            if let Err(e) = load_wallpaper(
-                &wallpaper_file.path,
+            if let Err(e) = loader.load_wallpaper(
+                &layout_gpu,
                 uploader.staging_buffer(),
-                width as u32,
-                height as u32,
-                width as usize * 4,
-                wl_shm::Format::Xrgb8888,
-                state.color_transform,
-                &mut resizer,
+                &wallpaper_file.path,
             ) {
                 error!("Failed to load wallpaper: {e:#}");
                 error_count += 1;
@@ -1117,7 +1107,7 @@ fn load_wallpapers(
             fds_need_flush = 0;
         }
         fds_need_flush += 1;
-        let mut shm_pool = match RawPool::new(shm_size, &state.shm) {
+        let mut shm_pool = match RawPool::new(layout_shm.size, &state.shm) {
             Ok(shm_pool) => shm_pool,
             Err(e) => {
                 error!("Failed to create shm pool: {e}");
@@ -1125,27 +1115,18 @@ fn load_wallpapers(
                 continue
             }
         };
-        if let Err(e) = load_wallpaper(
-            &wallpaper_file.path,
+        if let Err(e) = loader.load_wallpaper(
+            &layout_shm,
             shm_pool.mmap(),
-            width as u32,
-            height as u32,
-            shm_stride,
-            shm_format,
-            state.color_transform,
-            &mut resizer,
+            &wallpaper_file.path,
         ) {
             error!("Failed to load wallpaper: {e:#}");
             error_count += 1;
             continue
         }
-        let wl_buffer = shm_pool.create_buffer(
-            0,
-            width,
-            height,
-            shm_stride.try_into().unwrap(),
-            shm_format,
-            (),
+        let wl_buffer = wl_buffer_from_shm_pool(
+            &mut shm_pool,
+            &layout_shm,
             qh,
         );
         workspace_backgrounds.push(WorkspaceBackground {
@@ -1174,6 +1155,22 @@ fn load_wallpapers(
         workspace_backgrounds;
     malloc_trim_all();
     print_memory_stats(&state.background_layers);
+}
+
+fn wl_buffer_from_shm_pool(
+    shm_pool: &mut RawPool,
+    layout: &SurfaceLayout,
+    qh: &QueueHandle<State>,
+) -> WlBuffer {
+    shm_pool.create_buffer(
+        0,
+        layout.width as i32,
+        layout.height as i32,
+        layout.stride as i32,
+        layout.format,
+        (),
+        qh,
+    )
 }
 
 fn handle_dmabuf_feedback(

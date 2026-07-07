@@ -1,5 +1,3 @@
-#![allow(clippy::too_many_arguments)]
-
 use std::{
     fs::read_dir,
     path::{Path, PathBuf},
@@ -235,119 +233,166 @@ pub fn output_wallpaper_files(
     Ok(ret)
 }
 
-pub fn load_wallpaper(
-    path: &Path,
-    buffer: &mut [u8],
-    surface_width: u32,
-    surface_height: u32,
-    surface_stride: usize,
-    surface_format: wl_shm::Format,
+pub struct SurfaceLayout {
+    pub format: wl_shm::Format,
+    pub width: u32,
+    pub stride: usize,
+    pub has_padding: bool,
+    pub height: u32,
+    pub size: usize,
+}
+
+impl SurfaceLayout {
+    pub fn shm(width: u32, height: u32, format: wl_shm::Format) -> Self {
+        let (stride, has_padding) = match format {
+            wl_shm::Format::Xrgb8888 => (width as usize * 4, false),
+            wl_shm::Format::Bgr888 => {
+                let unpadded = width as usize * 3;
+                // Align buffer stride:
+                // - once to 4, because not being aligned to 4 caused
+                //   https://github.com/gergo-salyi/multibg-wayland/issues/6
+                // - and to 3, because not being aligned to 3 caused
+                //   https://github.com/gergo-salyi/multibg-wayland/issues/17
+                // So align stride to 4 * 3 = 12
+                let stride = unpadded.next_multiple_of(12);
+                (stride, stride != unpadded)
+            },
+            _ => unreachable!(),
+        };
+        let size = stride * height as usize;
+        Self { format, width, stride, has_padding, height, size }
+    }
+
+    pub fn gpu(width: u32, height: u32) -> Self {
+        let format = wl_shm::Format::Xrgb8888;
+        let stride = width as usize * 4;
+        let has_padding = false;
+        let size = stride * height as usize;
+        Self { format, width, stride, has_padding, height, size }
+    }
+}
+
+pub struct WallpaperLoader {
     color_transform: Option<ColorTransform>,
-    resizer: &mut Resizer,
-) -> anyhow::Result<()> {
-    let surface_size = surface_stride * surface_height as usize;
-    let Some(dst) = buffer.get_mut(..surface_size) else {
-        bail!("Provided buffer size {} smaller than wallpaper image size {}",
-            buffer.len(), surface_size);
-    };
-    let reader = ImageReader::open(path)
-        .context("Failed to open image file")?
-        .with_guessed_format()
-        .context("Failed to read image file format")?;
-    let file_format = reader.format()
-        .context("Failed to determine image file format")?;
-    if !file_format.can_read() {
-        bail!("Unsupported image file format {file_format:?}")
-    } else if !file_format.reading_enabled() {
-        bail!("Application was compiled with support \
-            for image file format {file_format:?} disabled")
+    resizer: Resizer,
+}
+
+impl WallpaperLoader {
+    pub fn new(color_transform: Option<ColorTransform>) -> Self {
+        Self { color_transform, resizer: Resizer::new() }
     }
-    let mut decoder = reader.into_decoder()
-        .context("Failed to initialize image decoder")?;
-    let (image_width, image_height) = decoder.dimensions();
-    let image_size = decoder.total_bytes();
-    let image_color_type = decoder.color_type();
-    if image_width == 0 || image_height == 0 || image_size > isize::MAX as u64 {
-        bail!("Image has invalid dimensions {image_width}x{image_height}")
-    };
-    debug!("Image {image_width}x{image_height} {image_color_type:?}");
-    if image_color_type.has_alpha() {
-        warn!("Image has alpha channel which will be ignored");
-    }
-    if let Ok(Some(_)) = decoder.icc_profile() {
-        debug!("Image has an embedded ICC color profile \
-            but ICC color profile handling is not yet implemented");
-    }
-    let needs_resize = image_width != surface_width
-        || image_height != surface_height;
-    let surface_row_len = surface_width as usize * 3;
-    if !needs_resize
-        && image_color_type == ColorType::Rgb8
-        && surface_format == wl_shm::Format::Bgr888
-        && color_transform.is_none()
-        && surface_row_len == surface_stride
-    {
-        debug!("Decoding image directly to destination buffer");
-        decoder.read_image(dst).context("Failed to decode image")?;
-        return Ok(());
-    }
-    let image = DynamicImage::from_decoder(decoder)
-        .context("Failed to decode image")?;
-    let mut image = image.into_rgb8();
-    if let Some(ct) = color_transform {
-        for (_, _, pixel) in image.enumerate_pixels_mut() {
-            pixel.apply(|subpixel| ct.apply(subpixel))
+
+    pub fn load_wallpaper(
+        &mut self,
+        surface: &SurfaceLayout,
+        buffer: &mut [u8],
+        path: &Path,
+    ) -> anyhow::Result<()> {
+        let Some(dst) = buffer.get_mut(..surface.size) else {
+            bail!("Buffer size {} smaller than surface size {}",
+                buffer.len(), surface.size);
+        };
+        let reader = ImageReader::open(path)
+            .context("Failed to open image file")?
+            .with_guessed_format()
+            .context("Failed to read image file format")?;
+        let file_format = reader.format()
+            .context("Failed to determine image file format")?;
+        if !file_format.can_read() {
+            bail!("Unsupported image file format {file_format:?}")
+        } else if !file_format.reading_enabled() {
+            bail!("Application was compiled with support \
+                for image file format {file_format:?} disabled")
         }
-    }
-    if needs_resize {
-        debug!("Resizing image from {}x{} to {}x{}",
-            image_width, image_height,
-            surface_width, surface_height
-        );
-        let src_image = Image::from_vec_u8(
-            image_width,
-            image_height,
-            image.into_raw(),
-            PixelType::U8x3,
-        ).unwrap();
-        let mut dst_image = Image::new(
-            surface_width,
-            surface_height,
-            PixelType::U8x3,
-        );
-        resizer.resize(
-            &src_image,
-            &mut dst_image,
-            &ResizeOptions::new()
-                .fit_into_destination(None)
-                .resize_alg(ResizeAlg::Convolution(FilterType::Lanczos3))
-        ).context("Failed to resize image")?;
-        image = ImageBuffer::from_raw(
-            surface_width,
-            surface_height,
-            dst_image.into_vec()
-        ).unwrap();
-    }
-    match surface_format {
-        wl_shm::Format::Bgr888 => {
-            if surface_row_len == surface_stride {
-                dst.copy_from_slice(&image);
-            } else {
-                copy_pad_stride(
-                    &image,
-                    dst,
-                    surface_row_len,
-                    surface_stride,
-                    surface_height as usize,
-                );
+        let mut decoder = reader.into_decoder()
+            .context("Failed to initialize image decoder")?;
+        let (image_width, image_height) = decoder.dimensions();
+        let image_size = decoder.total_bytes();
+        let image_color_type = decoder.color_type();
+        if image_width == 0 || image_height == 0
+            || image_size > isize::MAX as u64
+        {
+            bail!("Image has invalid dimensions {image_width}x{image_height}")
+        };
+        debug!("Image {image_width}x{image_height} {image_color_type:?}");
+        if image_color_type.has_alpha() {
+            warn!("Image has alpha channel which will be ignored");
+        }
+        if let Ok(Some(_icc_profile)) = decoder.icc_profile() {
+            debug!("Image has an embedded ICC color profile \
+                but ICC color profile handling is not yet implemented");
+        }
+        let needs_resize = image_width != surface.width
+            || image_height != surface.height;
+        if !needs_resize
+            && image_color_type == ColorType::Rgb8
+            && surface.format == wl_shm::Format::Bgr888
+            && self.color_transform.is_none()
+            && !surface.has_padding
+        {
+            debug!("Decoding image directly to destination buffer");
+            decoder.read_image(dst).context("Failed to decode image")?;
+            return Ok(())
+        }
+        let image = DynamicImage::from_decoder(decoder)
+            .context("Failed to decode image")?;
+        let mut image = image.into_rgb8();
+        let image_stride = image_width as usize * 3;
+        if let Some(ct) = self.color_transform {
+            for (_, _, pixel) in image.enumerate_pixels_mut() {
+                pixel.apply(|subpixel| ct.apply(subpixel))
             }
-        },
-        wl_shm::Format::Xrgb8888 => {
-            swizzle_bgra_from_rgb(&image, dst);
-        },
-        _ => unreachable!(),
+        }
+        if needs_resize {
+            debug!("Resizing image from {}x{} to {}x{}",
+                image_width, image_height,
+                surface.width, surface.height
+            );
+            let src_image = Image::from_vec_u8(
+                image_width,
+                image_height,
+                image.into_raw(),
+                PixelType::U8x3,
+            ).unwrap();
+            let mut dst_image = Image::new(
+                surface.width,
+                surface.height,
+                PixelType::U8x3,
+            );
+            self.resizer.resize(
+                &src_image,
+                &mut dst_image,
+                &ResizeOptions::new()
+                    .fit_into_destination(None)
+                    .resize_alg(ResizeAlg::Convolution(FilterType::Lanczos3))
+            ).context("Failed to resize image")?;
+            image = ImageBuffer::from_raw(
+                surface.width,
+                surface.height,
+                dst_image.into_vec()
+            ).unwrap();
+        }
+        match surface.format {
+            wl_shm::Format::Bgr888 => {
+                if surface.has_padding {
+                    copy_pad_stride(
+                        &image,
+                        dst,
+                        image_stride,
+                        surface.stride,
+                        surface.height as usize,
+                    );
+                } else {
+                    dst.copy_from_slice(&image);
+                }
+            },
+            wl_shm::Format::Xrgb8888 => {
+                swizzle_bgra_from_rgb(&image, dst);
+            },
+            _ => unreachable!(),
+        }
+        Ok(())
     }
-    Ok(())
 }
 
 fn copy_pad_stride(
