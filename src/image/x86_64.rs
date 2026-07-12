@@ -31,8 +31,6 @@ use std::{
     slice,
 };
 
-// const PAGE_SIZE: usize = 4096;
-
 pub fn select_fns() -> Functions {
     #[cfg(debug_assertions)]
     let (allow_avx512, allow_avx, allow_sse) = (
@@ -126,7 +124,16 @@ fn store_last(buf: &mut [u8], r: u64) {
     }
 }
 
+fn debug_assert_valid_last_access<T>(buf: &[u8]) {
+    debug_assert!(!buf.is_empty());
+    debug_assert!(buf.len() < size_of::<T>());
+    debug_assert!(buf.as_ptr().cast::<T>().is_aligned());
+}
+
+// Unaligned helpers if ever needed
 /*
+const PAGE_SIZE: usize = 4096;
+
 #[inline]
 fn access_within_page::<T>(ptr: *const u8) -> bool {
     match PAGE_SIZE.checked_sub(size_of::<T>()) {
@@ -134,40 +141,9 @@ fn access_within_page::<T>(ptr: *const u8) -> bool {
         None => false
     }
 }
-
-#[inline]
-#[target_feature(enable = "sse,sse2,ssse3,sse4.1")]
-fn bgra_from_rgb_sse41(
-    rgb: [__m128i; 3],
-    shuffle: [__m128i; 4],
-    opaque: __m128i,
-) -> [__m128i; 4] {
-    let mut bgra0 = _mm_shuffle_epi8(rgb[0], rgb[0]);
-    let mut bgra1 = _mm_shuffle_epi8(
-        _mm_blend_epi16::<0x0F>(rgb[1], rgb[0]),
-        shuffle[1],
-    );
-    let mut bgra2 = _mm_shuffle_epi8(
-        _mm_blend_epi16::<0x0F>(rgb[2], rgb[1]),
-        shuffle[2],
-    );
-    let mut bgra3 = _mm_shuffle_epi8(rgb[2], rgb[3]);
-    bgra0 = _mm_or_si128(bgra0, opaque);
-    bgra1 = _mm_or_si128(bgra1, opaque);
-    bgra2 = _mm_or_si128(bgra2, opaque);
-    bgra3 = _mm_or_si128(bgra3, opaque);
-    [bgra0, bgra1, bgra2, bgra3]
-}
 */
 
-
-/*
-unsafe fn cast_safe_levels_fn(
-    f: unsafe fn(&ColorTransform, &mut [u8]),
-) -> fn(&ColorTransform, &mut [u8]) {
-    transmute(f)
-}
-*/
+// Pure intrinsics SSE2 and AVX2 versions in Rust and C
 /*
 use std::arch::x86_64::*;
 
@@ -210,24 +186,26 @@ pub unsafe fn levels_sse2(transform: &ColorTransform, buf: &mut [__m128i]) {
 #[inline(never)]
 #[target_feature(enable = "avx,avx2")]
 pub unsafe fn levels_avx2(transform: &ColorTransform, buf: &mut [__m256i]) {
-    let input_min = _mm256_set1_epi8(transform.input_min as i8);
-    let input_rel_max = _mm256_set1_epi8(transform.input_rel_max as i8);
-    let bias = _mm256_set1_epi8(128u8 as i8);
-    let factor = _mm256_set1_epi16(transform.factor as i16);
-    let xor_term = _mm256_set1_epi8(transform.xor_term as i8);
-    let output_off = _mm256_set1_epi8(transform.output_off as i8);
-    for vector_mut in buf {
-        let input = *vector_mut;
-        let half_clamped = _mm256_subs_epu8(input, input_min);
-        let clamped = _mm256_min_epu8(half_clamped, input_rel_max);
-        let unpacked_lo = _mm256_unpacklo_epi8(bias, clamped);
-        let unpacked_hi = _mm256_unpackhi_epi8(bias, clamped);
-        let scaled_lo =_mm256_mulhi_epu16(unpacked_lo, factor);
-        let scaled_hi = _mm256_mulhi_epu16(unpacked_hi, factor);
-        let packed = _mm256_packus_epi16(scaled_lo, scaled_hi);
-        let maybe_inverted = _mm256_xor_si256(packed, xor_term);
-        let output = _mm256_add_epi8(maybe_inverted, output_off);
-        *vector_mut = output;
+    unsafe {
+        let input_min = _mm256_set1_epi8(transform.input_min as i8);
+        let input_rel_max = _mm256_set1_epi8(transform.input_rel_max as i8);
+        let bias = _mm256_set1_epi8(128u8 as i8);
+        let factor = _mm256_set1_epi16(transform.factor as i16);
+        let xor_term = _mm256_set1_epi8(transform.xor_term as i8);
+        let output_off = _mm256_set1_epi8(transform.output_off as i8);
+        for vector_mut in buf {
+            let input = *vector_mut;
+            let half_clamped = _mm256_subs_epu8(input, input_min);
+            let clamped = _mm256_min_epu8(half_clamped, input_rel_max);
+            let unpacked_lo = _mm256_unpacklo_epi8(bias, clamped);
+            let unpacked_hi = _mm256_unpackhi_epi8(bias, clamped);
+            let scaled_lo =_mm256_mulhi_epu16(unpacked_lo, factor);
+            let scaled_hi = _mm256_mulhi_epu16(unpacked_hi, factor);
+            let packed = _mm256_packus_epi16(scaled_lo, scaled_hi);
+            let maybe_inverted = _mm256_xor_si256(packed, xor_term);
+            let output = _mm256_add_epi8(maybe_inverted, output_off);
+            *vector_mut = output;
+        }
     }
 }
 */
@@ -244,25 +222,6 @@ struct ColorTransform {
     uint8_t  xor_term;
     uint8_t  output_off;
 };
-
-__attribute__((target("sse,sse2")))
-static inline __m128i all_ones() {
-    __m128i tmp = _mm_setzero_si128();
-    return _mm_cmpeq_epi32(tmp, tmp);
-}
-
-__attribute__((target("sse,sse2")))
-static inline __m128i lo64_ones() {
-    return _mm_move_epi64(all_ones());
-}
-
-__attribute__((target("sse,sse2")))
-static inline __m128i bgra_opaque_from_bgrx(__m128i bgrx) {
-    return _mm_or_si128(
-        bgrx,
-        _mm_slli_epi32(all_ones(), 24)
-    );
-}
 
 __attribute__((target("sse,sse2")))
 void levels_sse2(

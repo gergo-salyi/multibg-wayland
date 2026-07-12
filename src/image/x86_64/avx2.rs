@@ -262,18 +262,14 @@ fn load_array<const N: usize>(array_ref: &[Simd; N]) -> [Simd; N] {
 #[inline]
 #[target_feature(enable = "avx,avx2")]
 unsafe fn load_last(buf: &[u8]) -> Simd {
-    debug_assert!(!buf.is_empty());
-    debug_assert!(buf.len() < size_of::<Simd>());
-    debug_assert!(buf.as_ptr().cast::<Simd>().is_aligned());
+    debug_assert_valid_last_access::<Simd>(buf);
     unsafe { load_raw(buf.as_ptr().cast()) }
 }
 
 #[inline]
 #[target_feature(enable = "avx,avx2")]
 unsafe fn load_last_array<const N: usize>(buf: &[u8]) -> [Simd; N] {
-    debug_assert!(!buf.is_empty());
-    debug_assert!(buf.len() < N * size_of::<Simd>());
-    debug_assert!(buf.as_ptr().cast::<Simd>().is_aligned());
+    debug_assert_valid_last_access::<[Simd; N]>(buf);
     unsafe {
         let mut ptr = buf.as_ptr();
         let mut len = buf.len() as isize;
@@ -307,9 +303,7 @@ fn store_array<const N: usize>(simd_mut: &mut [Simd; N], val: [Simd; N]) {
 #[inline]
 #[target_feature(enable = "avx,avx2")]
 unsafe fn store_last(mut buf: &mut [u8], a: Simd) {
-    debug_assert!(!buf.is_empty());
-    debug_assert!(buf.len() < size_of::<Simd>());
-    debug_assert!(buf.as_ptr().cast::<Simd>().is_aligned());
+    debug_assert_valid_last_access::<Simd>(buf);
     unsafe {
         let a = if buf.len() >= 16 {
             _mm_store_si128(
@@ -331,9 +325,7 @@ unsafe fn store_last_array<const N: usize>(
     mut buf: &mut [u8],
     simd_array: [Simd; N],
 ) {
-    debug_assert!(!buf.is_empty());
-    debug_assert!(buf.len() < N * size_of::<Simd>());
-    debug_assert!(buf.as_ptr().cast::<Simd>().is_aligned());
+    debug_assert_valid_last_access::<[Simd; N]>(buf);
     unsafe {
         let mut last = undefined();
         for val in simd_array {
