@@ -1,19 +1,24 @@
+#[cfg(target_arch = "x86_64")]
+mod x86_64;
+
 use std::{
     fs::read_dir,
+    mem::swap,
     path::{Path, PathBuf},
     time::UNIX_EPOCH,
 };
 
 use anyhow::{bail, Context};
 use fast_image_resize::{
-    FilterType, PixelType, Resizer, ResizeAlg, ResizeOptions,
-    images::Image,
+    FilterType, Resizer, ResizeAlg, ResizeOptions,
+    images::{TypedImage, TypedImageRef},
+    pixels::U8x3,
 };
-use image::{
-    ColorType, DynamicImage, ImageBuffer, ImageDecoder, ImageReader, Pixel,
-};
+use image::{ColorType, ImageDecoder, ImageReader};
 use log::{debug, error, warn};
 use smithay_client_toolkit::reexports::client::protocol::wl_shm;
+
+use crate::buffer::Buf;
 
 #[derive(Clone, Copy, PartialEq)]
 pub struct Levels {
@@ -272,14 +277,68 @@ impl SurfaceLayout {
     }
 }
 
+struct Functions {
+    levels_in_place_fn: unsafe fn(&ColorTransform, &mut [u8]),
+    levels_to_bgra_fn: unsafe fn(&ColorTransform, &mut [u8], &[u8]),
+    bgra_from_rgb_fn: unsafe fn(&mut [u8], &[u8]),
+}
+
+impl Functions {
+    fn select() -> Self {
+        #[cfg(target_arch = "x86_64")]
+        return x86_64::select_fns();
+        #[allow(unreachable_code)]
+        Functions {
+            levels_in_place_fn: levels_in_place,
+            levels_to_bgra_fn: levels_to_bgra,
+            bgra_from_rgb_fn: bgra_from_rgb,
+        }
+    }
+
+    fn levels_in_place(&self, transform: &ColorTransform, buf: &mut [u8]) {
+        assert!(buf_is_aligned_to(buf, 64));
+        unsafe { (self.levels_in_place_fn)(transform, buf) }
+    }
+
+    fn levels_to_bgra(
+        &self,
+        transform: &ColorTransform,
+        dst: &mut [u8],
+        src: &[u8],
+    ) {
+        assert!(buf_is_aligned_to(src, 64));
+        assert!(buf_is_aligned_to(dst, 64));
+        unsafe { (self.levels_to_bgra_fn)(transform, dst, src) }
+    }
+
+    fn bgra_from_rgb(&self, dst: &mut [u8], src: &[u8]) {
+        assert!(buf_is_aligned_to(src, 64));
+        assert!(buf_is_aligned_to(dst, 64));
+        unsafe { (self.bgra_from_rgb_fn)(dst, src) }
+    }
+}
+
 pub struct WallpaperLoader {
+    buf: Buf,
+    buf_next: Buf,
     color_transform: Option<ColorTransform>,
     resizer: Resizer,
+    resize_options: ResizeOptions,
+    fns: Functions,
 }
 
 impl WallpaperLoader {
     pub fn new(color_transform: Option<ColorTransform>) -> Self {
-        Self { color_transform, resizer: Resizer::new() }
+        Self {
+            buf: Buf::new(),
+            buf_next: Buf::new(),
+            color_transform,
+            resizer: Resizer::new(),
+            resize_options: ResizeOptions::new()
+                .fit_into_destination(None)
+                .resize_alg(ResizeAlg::Convolution(FilterType::Mitchell)),
+            fns: Functions::select(),
+        }
     }
 
     pub fn load_wallpaper(
@@ -305,8 +364,10 @@ impl WallpaperLoader {
                 for image file format {file_format:?} disabled")
         }
         let mut decoder = reader.into_decoder()
-            .context("Failed to initialize image decoder")?;
-        let (image_width, image_height) = decoder.dimensions();
+            .with_context(|| format!(
+                "Failed to initialize {file_format:?} image decoder"
+            ))?;
+        let (mut image_width, mut image_height) = decoder.dimensions();
         let image_size = decoder.total_bytes();
         let image_color_type = decoder.color_type();
         if image_width == 0 || image_height == 0
@@ -314,6 +375,7 @@ impl WallpaperLoader {
         {
             bail!("Image has invalid dimensions {image_width}x{image_height}")
         };
+        let mut image_size = image_size as usize;
         debug!("Image {image_width}x{image_height} {image_color_type:?}");
         if image_color_type.has_alpha() {
             warn!("Image has alpha channel which will be ignored");
@@ -334,63 +396,101 @@ impl WallpaperLoader {
             decoder.read_image(dst).context("Failed to decode image")?;
             return Ok(())
         }
-        let image = DynamicImage::from_decoder(decoder)
+        debug!("Decoding image into temporary buffer");
+        self.buf.reserve(image_size);
+        decoder.read_image(&mut self.buf[..image_size])
             .context("Failed to decode image")?;
-        let mut image = image.into_rgb8();
-        let image_stride = image_width as usize * 3;
-        if let Some(ct) = self.color_transform {
-            for (_, _, pixel) in image.enumerate_pixels_mut() {
-                pixel.apply(|subpixel| ct.apply(subpixel))
-            }
+        if image_color_type != ColorType::Rgb8 {
+            debug!("Converting image color type from {:?} to Rgb8",
+                image_color_type);
+            let pixel_count = image_width as usize * image_height as usize;
+            let image_size_next = pixel_count * 3;
+            self.buf.reserve(image_size_next);
+            match image_color_type {
+                ColorType::L8 =>
+                    rgb8_from_l8(&mut self.buf, pixel_count),
+                ColorType::La8 =>
+                    rgb8_from_la8(&mut self.buf, pixel_count),
+                ColorType::Rgb8 => unreachable!(),
+                ColorType::Rgba8 =>
+                    rgb8_from_rgba8(&mut self.buf, pixel_count),
+                ColorType::L16 =>
+                    rgb8_from_l16(&mut self.buf, pixel_count),
+                ColorType::La16 =>
+                    rgb8_from_la16(&mut self.buf, pixel_count),
+                ColorType::Rgb16 =>
+                    rgb8_from_rgb16(&mut self.buf, pixel_count),
+                ColorType::Rgba16 =>
+                    rgb8_from_rgba16(&mut self.buf, pixel_count),
+                ColorType::Rgb32F =>
+                    rgb8_from_rgb32f(&mut self.buf, pixel_count),
+                ColorType::Rgba32F =>
+                    rgb8_from_rgba32f(&mut self.buf, pixel_count),
+                _ => bail!("Unsupported color type {image_color_type:?}"),
+            };
+            image_size = image_size_next;
         }
         if needs_resize {
             debug!("Resizing image from {}x{} to {}x{}",
-                image_width, image_height,
-                surface.width, surface.height
-            );
-            let src_image = Image::from_vec_u8(
+                image_width, image_height, surface.width, surface.height);
+            let image_size_next =
+                surface.width as usize * surface.height as usize * 3;
+            self.buf_next.reserve(image_size_next);
+            let src_image = TypedImageRef::<U8x3>::from_buffer(
                 image_width,
                 image_height,
-                image.into_raw(),
-                PixelType::U8x3,
+                &self.buf[..image_size],
             ).unwrap();
-            let mut dst_image = Image::new(
+            let mut dst_image = TypedImage::<U8x3>::from_buffer(
                 surface.width,
                 surface.height,
-                PixelType::U8x3,
-            );
-            self.resizer.resize(
+                &mut self.buf_next[..image_size_next],
+            ).unwrap();
+            self.resizer.resize_typed(
                 &src_image,
                 &mut dst_image,
-                &ResizeOptions::new()
-                    .fit_into_destination(None)
-                    .resize_alg(ResizeAlg::Convolution(FilterType::Mitchell))
+                &self.resize_options,
             ).context("Failed to resize image")?;
-            image = ImageBuffer::from_raw(
-                surface.width,
-                surface.height,
-                dst_image.into_vec()
-            ).unwrap();
+            image_width = surface.width;
+            image_height = surface.height;
+            image_size = image_size_next;
+            swap(&mut self.buf, &mut self.buf_next);
+        }
+        if let Some(transform) = &self.color_transform {
+            debug!("Applying levels color transform to image");
+            if surface.format == wl_shm::Format::Xrgb8888 {
+                self.fns.levels_to_bgra(
+                    transform,
+                    dst,
+                    &self.buf[..image_size],
+                );
+                return Ok(())
+            } else {
+                self.fns.levels_in_place(
+                    transform,
+                    &mut self.buf[..image_size],
+                );
+            }
         }
         match surface.format {
-            wl_shm::Format::Bgr888 => {
-                if surface.has_padding {
-                    copy_pad_stride(
-                        &image,
-                        dst,
-                        image_stride,
-                        surface.stride,
-                        surface.height as usize,
-                    );
-                } else {
-                    dst.copy_from_slice(&image);
-                }
+            wl_shm::Format::Bgr888 => if surface.has_padding {
+                debug!("Padding image stride");
+                copy_pad_stride(
+                    &self.buf[..image_size],
+                    dst,
+                    image_width as usize * 3,
+                    surface.stride,
+                    surface.height as usize,
+                );
+            } else {
+                dst.copy_from_slice(&self.buf[..image_size]);
             },
             wl_shm::Format::Xrgb8888 => {
-                swizzle_bgra_from_rgb(&image, dst);
+                self.fns.bgra_from_rgb(dst, &self.buf[..image_size]);
             },
             _ => unreachable!(),
         }
+        let _ = (image_width, image_height, image_size);
         Ok(())
     }
 }
@@ -408,40 +508,175 @@ fn copy_pad_stride(
     }
 }
 
-fn swizzle_bgra_from_rgb(src: &[u8], dst: &mut [u8]) {
+fn mulhi(left: u16, right: u16) -> u16 {
+    (((left as u32) * (right as u32)) >> 16) as u16
+}
+
+fn levels_in_place(transform: &ColorTransform, buf: &mut [u8]) {
+    for subpixel in buf {
+        *subpixel = transform.apply(*subpixel);
+    }
+}
+
+fn levels_to_bgra(transform: &ColorTransform, dst: &mut [u8], src: &[u8]) {
     let pixel_count = dst.len() / 4;
     assert_eq!(src.len(), pixel_count * 3);
     assert_eq!(dst.len(), pixel_count * 4);
     unsafe {
-        #[cfg(target_arch = "x86_64")]
-        if is_x86_feature_detected!("avx2") {
-            return bgra_from_rgb_avx2(src, dst, pixel_count)
+        for i in 0..pixel_count {
+            let r = *src.get_unchecked(3 * i    );
+            let g = *src.get_unchecked(3 * i + 1);
+            let b = *src.get_unchecked(3 * i + 2);
+            *dst.get_unchecked_mut(4 * i    ) = transform.apply(b);
+            *dst.get_unchecked_mut(4 * i + 1) = transform.apply(g);
+            *dst.get_unchecked_mut(4 * i + 2) = transform.apply(r);
+            *dst.get_unchecked_mut(4 * i + 3) = u8::MAX;
         }
-        bgra_from_rgb(src, dst, pixel_count)
     }
 }
 
-#[cfg(target_arch = "x86_64")]
-#[target_feature(enable = "avx2")]
-unsafe fn bgra_from_rgb_avx2(src: &[u8], dst: &mut [u8], pixel_count: usize) {
-    unsafe { bgra_from_rgb(src, dst, pixel_count) }
-}
-
-unsafe fn bgra_from_rgb(src: &[u8], dst: &mut [u8], pixel_count: usize) {
+fn bgra_from_rgb(dst: &mut [u8], src: &[u8]) {
+    let pixel_count = dst.len() / 4;
+    assert_eq!(src.len(), pixel_count * 3);
+    assert_eq!(dst.len(), pixel_count * 4);
     unsafe {
-        let mut src = src.as_ptr();
-        let mut dst = dst.as_mut_ptr();
-        for _ in 0..pixel_count {
-            *dst.add(0) = *src.add(2); // B
-            *dst.add(1) = *src.add(1); // G
-            *dst.add(2) = *src.add(0); // R
-            *dst.add(3) = u8::MAX;     // A
-            src = src.add(3);
-            dst = dst.add(4);
+        for i in 0..pixel_count {
+            let r = *src.get_unchecked(3 * i    );
+            let g = *src.get_unchecked(3 * i + 1);
+            let b = *src.get_unchecked(3 * i + 2);
+            *dst.get_unchecked_mut(4 * i    ) = b;
+            *dst.get_unchecked_mut(4 * i + 1) = g;
+            *dst.get_unchecked_mut(4 * i + 2) = r;
+            *dst.get_unchecked_mut(4 * i + 3) = u8::MAX;
         }
     }
 }
 
-fn mulhi(left: u16, right: u16) -> u16 {
-    (((left as u32) * (right as u32)) >> 16) as u16
+fn rgb8_from_l8(buf: &mut [u8], pixel_count: usize) {
+    assert!(buf.len() >= pixel_count.checked_mul(3).unwrap());
+    unsafe {
+        for i in (0..pixel_count).rev() {
+            let l = *buf.get_unchecked(i);
+            *buf.get_unchecked_mut(3 * i    ) = l;
+            *buf.get_unchecked_mut(3 * i + 1) = l;
+            *buf.get_unchecked_mut(3 * i + 2) = l;
+        }
+    }
+}
+
+fn rgb8_from_la8(buf: &mut Buf, pixel_count: usize) {
+    assert!(buf.len() >= pixel_count.checked_mul(3).unwrap());
+    unsafe {
+        for i in (0..pixel_count).rev() {
+            let l = *buf.get_unchecked(2 * i);
+            *buf.get_unchecked_mut(3 * i    ) = l;
+            *buf.get_unchecked_mut(3 * i + 1) = l;
+            *buf.get_unchecked_mut(3 * i + 2) = l;
+        }
+    }
+}
+
+fn rgb8_from_rgba8(buf: &mut Buf, pixel_count: usize) {
+    assert!(buf.len() >= pixel_count.checked_mul(4).unwrap());
+    unsafe {
+        for i in 0..pixel_count {
+            let r = *buf.get_unchecked(4 * i    );
+            let g = *buf.get_unchecked(4 * i + 1);
+            let b = *buf.get_unchecked(4 * i + 2);
+            *buf.get_unchecked_mut(3 * i    ) = r;
+            *buf.get_unchecked_mut(3 * i + 1) = g;
+            *buf.get_unchecked_mut(3 * i + 2) = b;
+        }
+    }
+}
+
+fn rgb8_from_l16(buf: &mut Buf, pixel_count: usize) {
+    assert!(buf.len() >= pixel_count.checked_mul(3).unwrap());
+    unsafe {
+        for i in (0..pixel_count).rev() {
+            let l = *buf.view_u16().get_unchecked(i);
+            *buf.get_unchecked_mut(3 * i    ) = (l >> 8) as u8;
+            *buf.get_unchecked_mut(3 * i + 1) = (l >> 8) as u8;
+            *buf.get_unchecked_mut(3 * i + 2) = (l >> 8) as u8;
+        }
+    }
+}
+
+fn rgb8_from_la16(buf: &mut Buf, pixel_count: usize) {
+    assert!(buf.len() >= pixel_count.checked_mul(4).unwrap());
+    unsafe {
+        for i in 0..pixel_count {
+            let l = *buf.view_u16().get_unchecked(2 * i);
+            *buf.get_unchecked_mut(3 * i    ) = (l >> 8) as u8;
+            *buf.get_unchecked_mut(3 * i + 1) = (l >> 8) as u8;
+            *buf.get_unchecked_mut(3 * i + 2) = (l >> 8) as u8;
+        }
+    }
+}
+
+fn rgb8_from_rgb16(buf: &mut Buf, pixel_count: usize) {
+    assert!(buf.len() >= pixel_count.checked_mul(6).unwrap());
+    unsafe {
+        for i in 0..pixel_count {
+            let r = *buf.view_u16().get_unchecked(3 * i    );
+            let g = *buf.view_u16().get_unchecked(3 * i + 1);
+            let b = *buf.view_u16().get_unchecked(3 * i + 2);
+            *buf.get_unchecked_mut(3 * i    ) = (r >> 8) as u8;
+            *buf.get_unchecked_mut(3 * i + 1) = (g >> 8) as u8;
+            *buf.get_unchecked_mut(3 * i + 2) = (b >> 8) as u8;
+        }
+    }
+}
+
+fn rgb8_from_rgba16(buf: &mut Buf, pixel_count: usize) {
+    assert!(buf.len() >= pixel_count.checked_mul(8).unwrap());
+    unsafe {
+        for i in 0..pixel_count {
+            let r = *buf.view_u16().get_unchecked(4 * i    );
+            let g = *buf.view_u16().get_unchecked(4 * i + 1);
+            let b = *buf.view_u16().get_unchecked(4 * i + 2);
+            *buf.get_unchecked_mut(3 * i    ) = (r >> 8) as u8;
+            *buf.get_unchecked_mut(3 * i + 1) = (g >> 8) as u8;
+            *buf.get_unchecked_mut(3 * i + 2) = (b >> 8) as u8;
+        }
+    }
+}
+
+fn rgb8_from_rgb32f(buf: &mut Buf, pixel_count: usize) {
+    assert!(buf.len() >= pixel_count.checked_mul(12).unwrap());
+    unsafe {
+        for i in 0..pixel_count {
+            let r = *buf.view_f32().get_unchecked(3 * i    );
+            let g = *buf.view_f32().get_unchecked(3 * i + 1);
+            let b = *buf.view_f32().get_unchecked(3 * i + 2);
+            *buf.get_unchecked_mut(3 * i    ) = (r * 256.0) as u8;
+            *buf.get_unchecked_mut(3 * i + 1) = (g * 256.0) as u8;
+            *buf.get_unchecked_mut(3 * i + 2) = (b * 256.0) as u8;
+        }
+    }
+}
+
+fn rgb8_from_rgba32f(buf: &mut Buf, pixel_count: usize) {
+    assert!(buf.len() >= pixel_count.checked_mul(16).unwrap());
+    unsafe {
+        for i in 0..pixel_count {
+            let r = *buf.view_f32().get_unchecked(4 * i    );
+            let g = *buf.view_f32().get_unchecked(4 * i + 1);
+            let b = *buf.view_f32().get_unchecked(4 * i + 2);
+            *buf.get_unchecked_mut(3 * i    ) = (r * 256.0) as u8;
+            *buf.get_unchecked_mut(3 * i + 1) = (g * 256.0) as u8;
+            *buf.get_unchecked_mut(3 * i + 2) = (b * 256.0) as u8;
+        }
+    }
+}
+
+fn buf_is_aligned_to(buf: &[u8], align: usize) -> bool {
+    ptr_is_aligned_to(buf.as_ptr(), align)
+}
+
+fn ptr_is_aligned_to<T>(ptr: *const T, align: usize) -> bool {
+    if !align.is_power_of_two() {
+        panic!("is_aligned_to: align is not a power-of-two");
+    }
+    ptr.addr() & (align - 1) == 0
 }
