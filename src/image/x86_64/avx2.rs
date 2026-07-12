@@ -247,13 +247,6 @@ const fn setr_epi8(elems: [i8; SIMD_SIZE]) -> Simd {
     unsafe { transmute(elems) }
 }
 
-// #[inline]
-// #[target_feature(enable = "avx,avx2")]
-// fn setones() -> Simd {
-//     let tmp = undefined();
-//     cmpeq_epi32(tmp, tmp)
-// }
-
 #[inline]
 #[target_feature(enable = "avx,avx2")]
 fn load(simd_ref: &Simd) -> Simd {
@@ -272,37 +265,23 @@ unsafe fn load_last(buf: &[u8]) -> Simd {
     debug_assert!(!buf.is_empty());
     debug_assert!(buf.len() < size_of::<Simd>());
     debug_assert!(buf.as_ptr().cast::<Simd>().is_aligned());
-    // Aligned loads can never fault
-    unsafe {
-        let ptr = buf.as_ptr();
-        let out: Simd;
-        asm!(
-            "vmovdqa {}, ymmword ptr [{}]",
-            lateout(ymm_reg) out,
-            in(reg) ptr,
-            options(pure, readonly, preserves_flags, nostack),
-        );
-        out
-    }
+    unsafe { load_raw(buf.as_ptr().cast()) }
 }
 
 #[inline]
 #[target_feature(enable = "avx,avx2")]
-unsafe fn load_last_array<const N: usize>(mut buf: &[u8]) -> [Simd; N] {
+unsafe fn load_last_array<const N: usize>(buf: &[u8]) -> [Simd; N] {
     debug_assert!(!buf.is_empty());
     debug_assert!(buf.len() < N * size_of::<Simd>());
     debug_assert!(buf.as_ptr().cast::<Simd>().is_aligned());
     unsafe {
+        let mut ptr = buf.as_ptr();
+        let mut len = buf.len() as isize;
         array::from_fn(|_| {
-            let ptr = buf.as_ptr();
-            let len = buf.len();
-            if len >= SIMD_SIZE {
-                let val = load(&*ptr.cast());
-                buf = &buf[SIMD_SIZE..];
-                val
-            } else if len != 0 {
-                let val = load_last(buf);
-                buf = &buf[len..];
+            if len > 0 {
+                let val = load_raw(ptr.cast());
+                ptr = ptr.add(SIMD_SIZE);
+                len -= SIMD_SIZE as isize;
                 val
             } else {
                 undefined()
@@ -342,9 +321,6 @@ unsafe fn store_last(mut buf: &mut [u8], a: Simd) {
         } else {
             cast_si128(a)
         };
-        if buf.is_empty() {
-            return
-        }
         super::ssse3::store_last(buf, a)
     }
 }
@@ -359,22 +335,40 @@ unsafe fn store_last_array<const N: usize>(
     debug_assert!(buf.len() < N * size_of::<Simd>());
     debug_assert!(buf.as_ptr().cast::<Simd>().is_aligned());
     unsafe {
+        let mut last = undefined();
         for val in simd_array {
-            let ptr = buf.as_mut_ptr();
-            let len = buf.len();
-            if len >= SIMD_SIZE {
-                store(&mut *ptr.cast(), val);
+            if buf.len() >= SIMD_SIZE {
+                store(&mut *buf.as_mut_ptr().cast(), val);
                 buf = &mut buf[SIMD_SIZE..];
-            } else if len != 0 {
-                store_last(buf, val);
-                buf = &mut buf[len..];
+            } else {
+                last = val;
+                break
             }
         }
+        if buf.is_empty() {
+            return
+        }
+        store_last(buf, last)
     }
 }
 
 #[inline]
-#[target_feature(enable = "avx2")]
+#[target_feature(enable = "avx,avx2")]
+unsafe fn load_raw(ptr: *const Simd) -> Simd {
+    unsafe {
+        let out: Simd;
+        asm!(
+            "vmovdqa {}, ymmword ptr [{}]",
+            lateout(ymm_reg) out,
+            in(reg) ptr,
+            options(pure, readonly, preserves_flags, nostack),
+        );
+        out
+    }
+}
+
+#[inline]
+#[target_feature(enable = "avx,avx2")]
 fn packus_epi16(a: Simd, b: Simd) -> Simd {
     unsafe {
         let out: Simd;
@@ -390,7 +384,7 @@ fn packus_epi16(a: Simd, b: Simd) -> Simd {
 }
 
 #[inline]
-#[target_feature(enable = "avx2")]
+#[target_feature(enable = "avx,avx2")]
 fn mulhi_epu16(a: Simd, b: Simd) -> Simd {
     unsafe {
         let out: Simd;
@@ -406,7 +400,7 @@ fn mulhi_epu16(a: Simd, b: Simd) -> Simd {
 }
 
 #[inline]
-#[target_feature(enable = "avx2")]
+#[target_feature(enable = "avx,avx2")]
 fn unpackhi_epi8(a: Simd, b: Simd) -> Simd {
     unsafe {
         let out: Simd;
@@ -422,7 +416,7 @@ fn unpackhi_epi8(a: Simd, b: Simd) -> Simd {
 }
 
 #[inline]
-#[target_feature(enable = "avx2")]
+#[target_feature(enable = "avx,avx2")]
 fn unpacklo_epi8(a: Simd, b: Simd) -> Simd {
     unsafe {
         let out: Simd;

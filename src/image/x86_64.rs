@@ -27,9 +27,7 @@ use super::*;
 use std::{
     arch::asm,
     array,
-    hint::unreachable_unchecked,
     mem::transmute,
-    ptr::copy_nonoverlapping,
     slice,
 };
 
@@ -111,24 +109,20 @@ unsafe fn split_aligned_mut<T>(buf: &mut [u8]) -> (&mut [T], &mut [u8]) {
 }
 
 #[inline(never)]
-unsafe fn store_last(buf: &mut [u8], r: u64) {
+fn store_last(buf: &mut [u8], r: u64) {
     debug_assert!(!buf.is_empty());
     debug_assert!(buf.len() < 8);
     let len = buf.len();
-    let dst = buf.as_mut_ptr();
     let r = r.to_ne_bytes();
-    let src = r.as_ptr();
-    unsafe {
-        match len {
-            1 => copy_nonoverlapping(src, dst, len),
-            2 => copy_nonoverlapping(src, dst, len),
-            3 => copy_nonoverlapping(src, dst, len),
-            4 => copy_nonoverlapping(src, dst, len),
-            5 => copy_nonoverlapping(src, dst, len),
-            6 => copy_nonoverlapping(src, dst, len),
-            7 => copy_nonoverlapping(src, dst, len),
-            _ => unreachable_unchecked()
-        }
+    match len {
+        1 => buf.copy_from_slice(&r[..len]),
+        2 => buf.copy_from_slice(&r[..len]),
+        3 => buf.copy_from_slice(&r[..len]),
+        4 => buf.copy_from_slice(&r[..len]),
+        5 => buf.copy_from_slice(&r[..len]),
+        6 => buf.copy_from_slice(&r[..len]),
+        7 => buf.copy_from_slice(&r[..len]),
+        _ => (),
     }
 }
 
