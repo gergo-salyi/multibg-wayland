@@ -13,6 +13,20 @@ keywords = ["wallpaper", "background", "desktop", "wayland", "sway"]
 categories = ["command-line-utilities", "multimedia::images"]
 exclude = ["/PKGBUILD", "/PKGBUILD.in", "/deps/", "/scripts/"]
 
+[profile.dev]
+debug = false
+
+[profile.dev.package."*"]
+debug = false
+opt-level = 1
+
+[profile.release]
+lto = "thin"
+
+[features]
+default = []
+avif = ["image/avif-native"]
+
 [dependencies]
 anyhow = "1.0.97"
 ash = "0.38.0"
@@ -40,7 +54,3 @@ swayipc = "4.0.0"
 version = "0.25.6"
 default-features = false
 features = ["bmp", "dds", "exr", "ff", "gif", "hdr", "ico", "jpeg", "png", "pnm", "qoi", "tga", "tiff", "webp"]
-
-[features]
-default = []
-avif = ["image/avif-native"]
