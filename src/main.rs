@@ -95,14 +95,16 @@ fn main() -> Result<(), ()> {
 }
 
 fn run() -> anyhow::Result<()> {
-    env_logger::Builder::from_env(
-        env_logger::Env::default().default_filter_or(
+    let log_env = env_logger::Env::default()
+        .default_filter_or(
             #[cfg(debug_assertions)]
             "info,multibg_wayland=trace",
             #[cfg(not(debug_assertions))]
             "info",
-        )
-    ).init();
+        );
+    env_logger::Builder::from_env(log_env)
+        .format_timestamp(None)
+        .init();
 
     info!(concat!(env!("CARGO_PKG_NAME"), " ", env!("CARGO_PKG_VERSION")));
 
