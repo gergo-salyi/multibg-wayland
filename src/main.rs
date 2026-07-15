@@ -5,6 +5,7 @@ mod buffer;
 mod cli;
 mod compositors;
 mod cpu;
+mod file_io;
 mod gpu;
 mod image;
 mod poll;

@@ -3,6 +3,7 @@ mod x86_64;
 
 use std::{
     fs::read_dir,
+    io::Cursor,
     mem::swap,
     path::{Path, PathBuf},
     time::UNIX_EPOCH,
@@ -14,7 +15,7 @@ use fast_image_resize::{
     images::{TypedImage, TypedImageRef},
     pixels::U8x3,
 };
-use image::{ColorType, ImageDecoder, ImageReader};
+use image::{ColorType, ImageDecoder, ImageFormat, ImageReader};
 use log::{debug, error, warn};
 use smithay_client_toolkit::reexports::client::protocol::wl_shm;
 
@@ -352,13 +353,17 @@ impl WallpaperLoader {
         surface: &SurfaceLayout,
         buffer: &mut [u8],
         path: &Path,
+        data: &[u8],
     ) -> anyhow::Result<()> {
         let Some(dst) = buffer.get_mut(..surface.size) else {
             bail!("Buffer size {} smaller than surface size {}",
                 buffer.len(), surface.size);
         };
-        let reader = ImageReader::open(path)
-            .context("Failed to open image file")?
+        let mut reader = ImageReader::new(Cursor::new(data));
+        if let Ok(format) = ImageFormat::from_path(path) {
+            reader.set_format(format);
+        }
+        reader = reader
             .with_guessed_format()
             .context("Failed to read image file format")?;
         let file_format = reader.format()

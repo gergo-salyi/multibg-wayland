@@ -49,6 +49,7 @@ use smithay_client_toolkit::reexports::protocols::wp::{
 
 use crate::{
     flush_blocking, State,
+    file_io,
     gpu::{
         DRM_FORMAT_XRGB8888, fmt_modifier,
         GpuMemory, GpuUploader, GpuWallpaper,
@@ -1007,6 +1008,8 @@ fn load_wallpapers(
             return
         }
     };
+    let mut files_to_load = Vec::with_capacity(wallpaper_files.len());
+    let mut duplicate_files = Vec::with_capacity(wallpaper_files.len());
     let mut loader = WallpaperLoader::new(
         state.cpu_features,
         state.color_transform,
@@ -1034,19 +1037,6 @@ fn load_wallpapers(
                     wallpaper_file.workspace);
             }
         }
-        if let Some(wallpaper) = find_equal_output_wallpaper(
-            &workspace_backgrounds,
-            &wallpaper_file,
-            gpu_uploader.as_ref(),
-        ) {
-            workspace_backgrounds.push(WorkspaceBackground {
-                workspace_name: wallpaper_file.workspace,
-                workspace_number: wallpaper_file.workspace_number,
-                wallpaper,
-            });
-            reused_count += 1;
-            continue
-        }
         if let Some(wallpaper) = find_equal_wallpaper(
             &state.background_layers,
             width,
@@ -1063,11 +1053,33 @@ fn load_wallpapers(
             reused_count += 1;
             continue
         }
+        if files_to_load.iter().any(|f: &WallpaperFile| {
+            f.canon_modified == wallpaper_file.canon_modified
+                && f.canon_path == wallpaper_file.canon_path
+        }) {
+            duplicate_files.push(wallpaper_file);
+        } else {
+            files_to_load.push(wallpaper_file);
+        }
+    }
+    let wallpaper_receiver = file_io::read_all(files_to_load);
+    for wallpaper_data in wallpaper_receiver {
+        let wallpaper_file = wallpaper_data.file;
+        let data = match wallpaper_data.data {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                error!("Failed to read wallpaper file {:?}: {}",
+                    wallpaper_file.path, e);
+                error_count += 1;
+                continue
+            }
+        };
         if let Some(uploader) = gpu_uploader.as_mut() {
             if let Err(e) = loader.load_wallpaper(
                 &layout_gpu,
                 uploader.staging_buffer(),
                 &wallpaper_file.path,
+                &data,
             ) {
                 error!("Failed to load wallpaper: {e:#}");
                 error_count += 1;
@@ -1122,6 +1134,7 @@ fn load_wallpapers(
             &layout_shm,
             shm_pool.mmap(),
             &wallpaper_file.path,
+            &data,
         ) {
             error!("Failed to load wallpaper: {e:#}");
             error_count += 1;
@@ -1144,6 +1157,23 @@ fn load_wallpapers(
             })),
         });
         loaded_count += 1;
+    }
+    for wallpaper_file in duplicate_files {
+        if let Some(wallpaper) = find_equal_output_wallpaper(
+            &workspace_backgrounds,
+            &wallpaper_file,
+            gpu_uploader.as_ref(),
+        ) {
+            workspace_backgrounds.push(WorkspaceBackground {
+                workspace_name: wallpaper_file.workspace,
+                workspace_number: wallpaper_file.workspace_number,
+                wallpaper,
+            });
+            reused_count += 1;
+        } else {
+            error!("Failed to reuse wallpaper for duplicate file");
+            error_count += 1;
+        }
     }
     if fds_need_flush > 0 {
         flush_blocking(connection);
