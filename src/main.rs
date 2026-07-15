@@ -4,6 +4,7 @@
 mod buffer;
 mod cli;
 mod compositors;
+mod cpu;
 mod gpu;
 mod image;
 mod poll;
@@ -47,6 +48,7 @@ use smithay_client_toolkit::reexports::protocols
 use crate::{
     cli::{Cli, PixelFormat},
     compositors::{Compositor, ConnectionTask, WorkspaceVisible},
+    cpu::CpuFeatures,
     gpu::Gpu,
     image::{ColorTransform, Levels},
     poll::{Poll, Waker},
@@ -65,6 +67,7 @@ struct State {
     shm_format: Option<wl_shm::Format>,
     background_layers: Vec<BackgroundLayer>,
     compositor_connection_task: ConnectionTask,
+    cpu_features: CpuFeatures,
     color_transform: Option<ColorTransform>,
     dmabuf_state: DmabufState,
     gpu: Option<Gpu>,
@@ -118,6 +121,7 @@ fn run() -> anyhow::Result<()> {
     }
 
     let wallpaper_dir = Path::new(&cli.wallpaper_dir).canonicalize().unwrap();
+    let cpu_features = CpuFeatures::detect();
     let color_transform = cli.levels()?.map(ColorTransform::from_levels);
 
     // ********************************
@@ -184,6 +188,7 @@ fn run() -> anyhow::Result<()> {
         compositor_connection_task: ConnectionTask::new(
             compositor, tx.clone(), Arc::clone(&waker)
         ),
+        cpu_features,
         color_transform,
         dmabuf_state,
         gpu,

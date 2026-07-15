@@ -1,17 +1,42 @@
 #!/bin/bash
 set -Ceuo pipefail
-multibg_bin="$1"
+bin="$1"
 tests=(
+    shm_bgra_baseline
+    shm_bgra_ssse3
+    shm_bgra_avx2
+    shm_bgra_avx512bw
+    shm_bgra_avx512vbmi
     shm_rgb
-    shm_bgra
     gpu
 )
-shm_rgb () {
-    multibg
+shm_bgra_baseline () {
+    env=( MULTIBG_DEBUG_CPU=baseline )
+    multibg --pixelformat baseline
     assert_screenshot_eq
 }
-shm_bgra () {
+shm_bgra_ssse3 () {
+    env=( MULTIBG_DEBUG_CPU=ssse3 )
     multibg --pixelformat baseline
+    assert_screenshot_eq
+}
+shm_bgra_avx2 () {
+    env=( MULTIBG_DEBUG_CPU=avx2 )
+    multibg --pixelformat baseline
+    assert_screenshot_eq
+}
+shm_bgra_avx512bw () {
+    env=( MULTIBG_DEBUG_CPU=avx512bw )
+    multibg --pixelformat baseline
+    assert_screenshot_eq
+}
+shm_bgra_avx512vbmi () {
+    env=( MULTIBG_DEBUG_CPU=avx512vbmi )
+    multibg --pixelformat baseline
+    assert_screenshot_eq
+}
+shm_rgb () {
+    multibg
     assert_screenshot_eq
 }
 gpu () {
@@ -25,10 +50,11 @@ multibg () {
         I3SOCK="$sock" SWAYSOCK="$sock" \
         WAYLAND_DISPLAY="$wld" \
         RUST_BACKTRACE=1 RUST_LOG=info,multibg_wayland=trace \
-        "$multibg_bin" "$@" w \
+        "${env[@]}" "$bin" "$@" w \
         >>multibg.log 2>&1 &
     multibg_pid=$!
     sleep 0.5
+    env=()
 }
 screenshot () {
     env -i \
@@ -63,13 +89,13 @@ env -i \
     sway --config sway.config \
     >/dev/null 2>&1 &
 sway_pid=$!
-sleep 0.2
+sleep 0.5
 wld="$(ls -t $XDG_RUNTIME_DIR | grep -m 1 '^wayland-[[:digit:]]$')"
 sock="$XDG_RUNTIME_DIR/sway-ipc.$UID.$sway_pid.sock"
 swaymsg '[title = "wlroots - WL-1"] floating enable'
-sleep 0.1
+sleep 0.2
 swaymsg '[title = "wlroots - WL-1"] resize set 551 391'
-sleep 0.1
+sleep 0.2
 passed=0
 set +e
 for tst in "${tests[@]}"; do
@@ -77,7 +103,7 @@ for tst in "${tests[@]}"; do
     status=$?
     kill $multibg_pid
     wait $multibg_pid
-    sleep 0.1
+    sleep 0.2
     if (( status == 0 )); then
         passed=$(( passed + 1 ))
     else

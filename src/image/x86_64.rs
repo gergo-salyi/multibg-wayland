@@ -30,41 +30,31 @@ use std::{
     mem::transmute,
     slice,
 };
+use crate::CpuFeatures;
 
-pub fn select_fns() -> Functions {
-    #[cfg(debug_assertions)]
-    let (allow_avx512, allow_avx, allow_sse) = (
-        std::env::var_os("MULTIBG_DEBUG_NOAVX512").is_none(),
-        std::env::var_os("MULTIBG_DEBUG_NOAVX").is_none(),
-        std::env::var_os("MULTIBG_DEBUG_NOSSE").is_none(),
-    );
-    #[cfg(not(debug_assertions))]
-    let (allow_avx512, allow_avx, allow_sse) = (true, true, true);
-    if allow_avx512
-        && is_x86_feature_detected!("avx512f")
-        && is_x86_feature_detected!("avx512bw")
-    {
-        debug!("Using AVX-512 image processing functions");
+pub fn select_fns(cpu_features: CpuFeatures) -> Functions {
+    if cpu_features.avx512vbmi() {
+        debug!("Using AVX512VBMI image processing functions");
         Functions {
             levels_in_place_fn: avx512bw::levels_in_place,
-            levels_to_bgra_fn: avx512bw::levels_to_bgra,
-            bgra_from_rgb_fn: avx512bw::bgra_from_rgb,
+            levels_to_bgra_fn: avx512bw::levels_to_bgra_vbmi,
+            bgra_from_rgb_fn: avx512bw::bgra_from_rgb_vbmi,
         }
-    } else if allow_avx
-        && is_x86_feature_detected!("avx")
-        && is_x86_feature_detected!("avx2")
-    {
+    } else if cpu_features.avx512bw() {
+        debug!("Using AVX512BW image processing functions");
+        Functions {
+            levels_in_place_fn: avx512bw::levels_in_place,
+            levels_to_bgra_fn: avx512bw::levels_to_bgra_bw,
+            bgra_from_rgb_fn: avx512bw::bgra_from_rgb_bw,
+        }
+    } else if cpu_features.avx2() {
         debug!("Using AVX2 image processing functions");
         Functions {
             levels_in_place_fn: avx2::levels_in_place,
             levels_to_bgra_fn: avx2::levels_to_bgra,
             bgra_from_rgb_fn: avx2::bgra_from_rgb,
         }
-    } else if allow_sse
-        && is_x86_feature_detected!("sse")
-        && is_x86_feature_detected!("sse2")
-        && is_x86_feature_detected!("ssse3")
-    {
+    } else if cpu_features.ssse3() {
         debug!("Using SSSE3 image processing functions");
         Functions {
             levels_in_place_fn: ssse3::levels_in_place,
@@ -72,6 +62,7 @@ pub fn select_fns() -> Functions {
             bgra_from_rgb_fn: ssse3::bgra_from_rgb,
         }
     } else {
+        debug!("Using common image processing functions");
         Functions {
             levels_in_place_fn: levels_in_place,
             levels_to_bgra_fn: levels_to_bgra,

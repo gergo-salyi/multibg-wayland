@@ -18,7 +18,10 @@ use image::{ColorType, ImageDecoder, ImageReader};
 use log::{debug, error, warn};
 use smithay_client_toolkit::reexports::client::protocol::wl_shm;
 
-use crate::buffer::Buf;
+use crate::{
+    CpuFeatures,
+    buffer::Buf,
+};
 
 #[derive(Clone, Copy, PartialEq)]
 pub struct Levels {
@@ -284,9 +287,9 @@ struct Functions {
 }
 
 impl Functions {
-    fn select() -> Self {
+    fn select(cpu_features: CpuFeatures) -> Self {
         #[cfg(target_arch = "x86_64")]
-        return x86_64::select_fns();
+        return x86_64::select_fns(cpu_features);
         #[allow(unreachable_code)]
         Functions {
             levels_in_place_fn: levels_in_place,
@@ -328,7 +331,10 @@ pub struct WallpaperLoader {
 }
 
 impl WallpaperLoader {
-    pub fn new(color_transform: Option<ColorTransform>) -> Self {
+    pub fn new(
+        cpu_features: CpuFeatures,
+        color_transform: Option<ColorTransform>,
+    ) -> Self {
         Self {
             buf: Buf::new(),
             buf_next: Buf::new(),
@@ -337,7 +343,7 @@ impl WallpaperLoader {
             resize_options: ResizeOptions::new()
                 .fit_into_destination(None)
                 .resize_alg(ResizeAlg::Convolution(FilterType::Mitchell)),
-            fns: Functions::select(),
+            fns: Functions::select(cpu_features),
         }
     }
 

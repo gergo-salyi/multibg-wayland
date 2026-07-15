@@ -1007,7 +1007,10 @@ fn load_wallpapers(
             return
         }
     };
-    let mut loader = WallpaperLoader::new(state.color_transform);
+    let mut loader = WallpaperLoader::new(
+        state.cpu_features,
+        state.color_transform,
+    );
     let layout_shm = SurfaceLayout::shm(
         width as u32,
         height as u32,
