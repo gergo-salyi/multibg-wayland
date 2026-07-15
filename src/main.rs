@@ -228,22 +228,22 @@ fn run() -> anyhow::Result<()> {
             waker.read();
             handle_sway_event(&mut state, &rx);
         }
-        if let Some(token_signal) = token_signal {
-            if poll.ready(token_signal) {
-                match signal_pipe.as_ref().unwrap().read() {
-                    Err(e) => error!("Failed to read the signal pipe: {e}"),
-                    Ok(signal_flags) => {
-                        if let Some(signal) = signal_flags.any_termination() {
-                            info!("Received signal {signal}, exiting");
-                            return Ok(());
-                        } else if signal_flags.has_usr1()
-                            || signal_flags.has_usr2()
-                        {
-                            error!("Received signal USR1 or USR2 is \
-                                reserved for future functionality");
-                        }
-                    },
-                }
+        if let Some(token_signal) = token_signal
+            && poll.ready(token_signal)
+        {
+            match signal_pipe.as_ref().unwrap().read() {
+                Err(e) => error!("Failed to read the signal pipe: {e}"),
+                Ok(signal_flags) => {
+                    if let Some(signal) = signal_flags.any_termination() {
+                        info!("Received signal {signal}, exiting");
+                        return Ok(());
+                    } else if signal_flags.has_usr1()
+                        || signal_flags.has_usr2()
+                    {
+                        error!("Received signal USR1 or USR2 is \
+                            reserved for future functionality");
+                    }
+                },
             }
         }
     }
@@ -253,16 +253,16 @@ fn flush_blocking(connection: &Connection) {
     loop {
         let result = connection.flush();
         if result.is_ok() { return }
-        if let Err(WaylandError::Io(io_error)) = &result {
-            if io_error.kind() == io::ErrorKind::WouldBlock {
-                warn!("Wayland flush needs to block");
-                let mut poll_fds = [PollFd::from_borrowed_fd(
-                    connection.as_fd(),
-                    PollFlags::OUT,
-                )];
-                retry_on_intr(|| poll(&mut poll_fds, None)).unwrap();
-                continue
-            }
+        if let Err(WaylandError::Io(io_error)) = &result
+            && io_error.kind() == io::ErrorKind::WouldBlock
+        {
+            warn!("Wayland flush needs to block");
+            let mut poll_fds = [PollFd::from_borrowed_fd(
+                connection.as_fd(),
+                PollFlags::OUT,
+            )];
+            retry_on_intr(|| poll(&mut poll_fds, None)).unwrap();
+            continue
         }
         result.expect("Failed to flush Wayland event queue");
     }
@@ -290,10 +290,10 @@ fn handle_wayland_event(
                 .expect("Failed to dispatch pending Wayland events");
         },
         Err(error) => {
-            if let WaylandError::Io(io_error) = &error {
-                if io_error.kind() == io::ErrorKind::WouldBlock {
-                    return
-                }
+            if let WaylandError::Io(io_error) = &error
+                && io_error.kind() == io::ErrorKind::WouldBlock
+            {
+                return
             }
             panic!("Failed to read Wayland events: {error}");
         }

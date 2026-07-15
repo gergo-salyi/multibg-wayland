@@ -221,7 +221,7 @@ impl Drop for ErrnoGuard {
 // under licence MIT OR Apache-2.0
 
 #[allow(unexpected_cfgs)]
-extern "C" {
+unsafe extern "C" {
     #[cfg_attr(
         any(
             target_os = "linux",

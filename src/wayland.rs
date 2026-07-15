@@ -124,13 +124,13 @@ impl BackgroundLayer {
         };
         let wallpaper = &workspace_bg.wallpaper;
 
-        if let Some(current) = &self.current_wallpaper {
-            if Rc::ptr_eq(current, wallpaper) {
-                debug!("Skipping draw on output {} for workspace {} \
-                    because its wallpaper is already set",
-                    self.output_name, workspace_name);
-                return
-            }
+        if let Some(current) = &self.current_wallpaper
+            && Rc::ptr_eq(current, wallpaper)
+        {
+            debug!("Skipping draw on output {} for workspace {} \
+                because its wallpaper is already set",
+                self.output_name, workspace_name);
+            return
         }
 
         let wallpaper_borrow = wallpaper.borrow();
@@ -210,14 +210,13 @@ impl Memory {
         &mut self,
         other_params: &ZwpLinuxBufferParamsV1,
     ) -> bool {
-        if let Memory::Dmabuf { params: params_option, .. } = self {
-            if let Some(params) = params_option {
-                if params == other_params {
-                    params.destroy();
-                    *params_option = None;
-                    return true
-                }
-            }
+        if let Memory::Dmabuf { params: params_option, .. } = self
+            && let Some(params) = params_option
+            && params == other_params
+        {
+            params.destroy();
+            *params_option = None;
+            return true
         }
         false
     }
@@ -319,14 +318,13 @@ impl DmabufHandler for State {
                     debug!("Created Linux DMA-BUF buffer for wallpaper \
                         file {:?}", wallpaper_borrow.canon_path);
                     drop(wallpaper_borrow);
-                    if let Some(queued_weak) = &bg_layer.queued_wallpaper {
-                        if let Some(queued) = queued_weak.upgrade() {
-                            if Rc::ptr_eq(&queued, wallpaper) {
-                                let name = workspace_bg.workspace_name.clone();
-                                let number = workspace_bg.workspace_number;
-                                bg_layer.draw_workspace_bg(&name, number);
-                            }
-                        }
+                    if let Some(queued_weak) = &bg_layer.queued_wallpaper
+                        && let Some(queued) = queued_weak.upgrade()
+                        && Rc::ptr_eq(&queued, wallpaper)
+                    {
+                        let name = workspace_bg.workspace_name.clone();
+                        let number = workspace_bg.workspace_number;
+                        bg_layer.draw_workspace_bg(&name, number);
                     }
                     return
                 }
@@ -731,11 +729,11 @@ impl OutputHandler for State {
                 .set_destination(logical_width, logical_height);
         }
         // Hyprland only applies viewport change on the next redraw
-        if let Some(wallpaper) = &bg_layer.current_wallpaper {
-            if let Some(wl_buffer) = &wallpaper.borrow().wl_buffer {
-                layer.attach(Some(wl_buffer), 0, 0);
-                layer.wl_surface().damage_buffer(0, 0, width, height);
-            }
+        if let Some(wallpaper) = &bg_layer.current_wallpaper
+            && let Some(wl_buffer) = &wallpaper.borrow().wl_buffer
+        {
+            layer.attach(Some(wl_buffer), 0, 0);
+            layer.wl_surface().damage_buffer(0, 0, width, height);
         }
         layer.commit();
     }
