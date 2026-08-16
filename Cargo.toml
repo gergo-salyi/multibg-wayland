@@ -24,8 +24,25 @@ opt-level = 1
 lto = "thin"
 
 [features]
-default = []
+default = [
+    "bmp", "dds", "exr", "ff", "gif", "hdr", "ico", "jpeg", "png", "pnm",
+    "qoi", "tga", "tiff", "webp",
+]
 avif = ["image/avif-native"]
+bmp = ["image/bmp"]
+dds = ["image/dds"]
+exr = ["image/exr"]
+ff = ["image/ff"]
+gif = ["image/gif"]
+hdr = ["image/hdr"]
+ico = ["image/ico"]
+jpeg = ["image/jpeg"]
+png = ["image/png"]
+pnm = ["image/pnm"]
+qoi = ["image/qoi"]
+tga = ["image/tga"]
+tiff = ["image/tiff"]
+webp = ["image/webp"]
 
 [dependencies]
 anyhow = "1.0.97"
@@ -37,6 +54,10 @@ env_logger = {
     features = ["auto-color"],
 }
 fast_image_resize = "6.0.0"
+image = {
+    version = "0.25.6",
+    default-features = false,
+}
 libc = "0.2.171"
 log = "0.4.21"
 niri-ipc-25-2-0 = { package = "multibg-wayland-niri-ipc", version = "=0.250200.0" }
@@ -48,8 +69,3 @@ scopeguard = "1.2.0"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
 smithay-client-toolkit = { version = "0.21.1", default-features = false }
-
-[dependencies.image]
-version = "0.25.6"
-default-features = false
-features = ["bmp", "dds", "exr", "ff", "gif", "hdr", "ico", "jpeg", "png", "pnm", "qoi", "tga", "tiff", "webp"]
