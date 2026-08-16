@@ -9,8 +9,7 @@ use anyhow::{bail, Context};
 use log::{debug, error, warn};
 use rustix::fs::{Dev, major, minor};
 use smithay_client_toolkit::{
-    delegate_compositor, delegate_dmabuf, delegate_layer, delegate_output,
-    delegate_registry, delegate_shm,
+    delegate_dispatch2, delegate_registry,
     compositor::{CompositorHandler, Region},
     dmabuf::{DmabufFeedback, DmabufHandler, DmabufState},
     output::{OutputHandler, OutputState},
@@ -804,12 +803,8 @@ impl ShmHandler for State {
     }
 }
 
-delegate_compositor!(State);
-delegate_dmabuf!(State);
-delegate_layer!(State);
-delegate_output!(State);
+delegate_dispatch2!(State);
 delegate_registry!(State);
-delegate_shm!(State);
 
 impl Dispatch<WpViewporter, ()> for State {
     fn event(
