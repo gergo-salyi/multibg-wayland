@@ -42,6 +42,7 @@ use ash::{
         ImageType,
         ImageUsageFlags,
         MemoryAllocateInfo,
+        MemoryDedicatedAllocateInfo,
         MemoryGetFdInfoKHR,
         MemoryMapFlags,
         MemoryPropertyFlags,
@@ -316,6 +317,9 @@ pub unsafe fn upload(
                 .memory_type_index(image_memory_index)
                 .push_next(&mut ExportMemoryAllocateInfo::default()
                     .handle_types(ExternalMemoryHandleTypeFlags::DMA_BUF_EXT)
+                )
+                .push_next(&mut MemoryDedicatedAllocateInfo::default()
+                    .image(*image)
                 ),
             None
         ).context("Failed to allocate memory for image")?,
