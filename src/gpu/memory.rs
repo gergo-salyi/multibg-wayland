@@ -58,8 +58,8 @@ use ash::{
     }
 };
 use log::debug;
-use scopeguard::{guard, ScopeGuard};
 
+use crate::guard::DropGuard;
 use super::{
     DRM_FORMAT_MOD_LINEAR, fmt_modifier,
     GpuDevice, GpuMemory, GpuUploader, GpuWallpaper,
@@ -142,7 +142,7 @@ pub unsafe fn uploader(
         filtered_modifiers.iter()
             .map(|&modifier| fmt_modifier(modifier))
             .collect::<Vec<_>>().join(", "));
-    let buffer = guard(
+    let buffer = DropGuard::new(
         device.create_buffer(
             &BufferCreateInfo::default()
                 .flags(BufferCreateFlags::empty())
@@ -161,7 +161,7 @@ pub unsafe fn uploader(
         MemoryPropertyFlags::HOST_VISIBLE | MemoryPropertyFlags::HOST_COHERENT
             | MemoryPropertyFlags::HOST_CACHED,
     ).context("Cannot find suitable device memory type for staging buffer")?;
-    let memory = guard(
+    let memory = DropGuard::new(
         device.allocate_memory(
             &MemoryAllocateInfo::default()
                 .allocation_size(buffer_memory_req.size)
@@ -179,8 +179,8 @@ pub unsafe fn uploader(
         MemoryMapFlags::empty()
     ).context("Failed to map staging buffer memory")?;
     Ok(GpuUploader {
-        memory: ScopeGuard::into_inner(memory),
-        buffer: ScopeGuard::into_inner(buffer),
+        memory: DropGuard::dismiss(memory),
+        buffer: DropGuard::dismiss(buffer),
         ptr: ptr.cast(),
         len: buffer_memory_req.size as usize,
         extent: Extent2D { width, height },
@@ -298,7 +298,7 @@ pub unsafe fn upload(
     } else {
         image_create_info = image_create_info.tiling(ImageTiling::LINEAR);
     }
-    let image = guard(
+    let image = DropGuard::new(
         device.create_image(&image_create_info, None)
             .context("Failed to create image")?,
         |image| device.destroy_image(image, None),
@@ -309,7 +309,7 @@ pub unsafe fn upload(
         memory_props,
         MemoryPropertyFlags::DEVICE_LOCAL,
     ).context("Failed to find memorytype index for image")?;
-    let image_memory = guard(
+    let image_memory = DropGuard::new(
         device.allocate_memory(
             &MemoryAllocateInfo::default()
                 .allocation_size(image_memory_req.size)
@@ -448,9 +448,9 @@ pub unsafe fn upload(
         memory_planes_len: memory_plane_count,
         memory_planes,
         gpu_memory: GpuMemory {
-            memory: ScopeGuard::into_inner(image_memory),
+            memory: DropGuard::dismiss(image_memory),
             size: uploader.len,
-            image: ScopeGuard::into_inner(image),
+            image: DropGuard::dismiss(image),
             gpu_device: Rc::clone(&uploader.gpu_device),
             drm_format_modifier,
         },

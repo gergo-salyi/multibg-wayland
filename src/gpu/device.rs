@@ -41,8 +41,8 @@ use ash::{
 };
 use log::{debug, error, warn};
 use rustix::fs::{Dev, major, makedev, minor};
-use scopeguard::{guard, ScopeGuard};
 
+use crate::guard::DropGuard;
 use super::{GpuDevice, GpuInstance, has_extension};
 
 struct PhysdevInfo {
@@ -277,7 +277,7 @@ unsafe fn try_device_with_physdev(
         .context("KHR_image_format_list unavailable")?;
     let has_image_drm_format_modifier = extensions
         .try_enable(image_drm_format_modifier::NAME).is_some();
-    let device = guard(
+    let device = DropGuard::new(
         instance.create_device(
             physdev,
             &DeviceCreateInfo::default()
@@ -299,7 +299,7 @@ unsafe fn try_device_with_physdev(
         None
     };
     let queue = device.get_device_queue(queue_family_index, 0);
-    let command_pool = guard(
+    let command_pool = DropGuard::new(
         device.create_command_pool(
             &CommandPoolCreateInfo::default()
                 .flags(CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
@@ -308,7 +308,7 @@ unsafe fn try_device_with_physdev(
         ).context("Failed to create command pool")?,
         |command_pool| device.destroy_command_pool(command_pool, None)
     );
-    let command_buffer = guard(
+    let command_buffer = DropGuard::new(
         device.allocate_command_buffers(
             &CommandBufferAllocateInfo::default()
                 .command_buffer_count(1)
@@ -324,9 +324,9 @@ unsafe fn try_device_with_physdev(
         None
     };
     Ok(GpuDevice {
-        command_buffer: ScopeGuard::into_inner(command_buffer),
-        command_pool: ScopeGuard::into_inner(command_pool),
-        device: ScopeGuard::into_inner(device),
+        command_buffer: DropGuard::dismiss(command_buffer),
+        command_pool: DropGuard::dismiss(command_pool),
+        device: DropGuard::dismiss(device),
         external_memory_fd_device,
         image_drm_format_modifier_device,
         physdev,

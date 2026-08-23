@@ -7,6 +7,7 @@ mod compositors;
 mod cpu;
 mod file_io;
 mod gpu;
+mod guard;
 mod image;
 mod poll;
 mod signal;
