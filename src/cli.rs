@@ -1,167 +1,544 @@
-use std::fmt::Write as _;
+use std::{
+    env::args_os,
+    ffi::OsStr,
+    fmt::{self, Display, Write as _},
+    io::{stdout, Write},
+    ops::RangeBounds,
+    os::unix::ffi::{OsStrExt, OsStringExt},
+    path::Path,
+};
 
-use anyhow::bail;
-use clap::{Parser, ValueEnum};
-use log::warn;
+use crate::{
+    PKG_NAME, PKG_VERSION,
+    compositors::Compositor,
+    image::Levels,
+};
 
-use crate::Levels;
+const HELP_TXT: &str = include_str!("help.txt");
 
-#[derive(Parser)]
-#[command(author, version, long_about = None, about = "\
-Set a different wallpaper for the background of each Sway / Hyprland / niri workspace
+const SHORTS: &[(u8, Handler)] = &[
+    (b'V', Flag(Cli::flag_version)),
+    (b'b', Opt(Cli::opt_brightness)),
+    (b'c', Opt(Cli::opt_contrast)),
+    (b'h', Flag(Cli::flag_help)),
+];
 
-    $ multibg-wayland <WALLPAPER_DIR>
+const LONGS: &[(&[u8], Handler)] = &[
+    (b"gpu", Flag(Cli::flag_gpu)),
+    (b"help", Flag(Cli::flag_help)),
+    (b"no-gpu", Flag(Cli::flag_no_gpu)),
+    (b"version", Flag(Cli::flag_version)),
+    (b"contrast", Opt(Cli::opt_contrast)),
+    (b"brightness", Opt(Cli::opt_brightness)),
+    (b"compositor", Opt(Cli::opt_compositor)),
+    (b"pixelformat", Opt(Cli::opt_pixel_format)),
+    (b"list-outputs", Flag(Cli::flag_list_outputs)),
+    (b"level-input-max", Opt(Cli::opt_level_input_max)),
+    (b"level-input-min", Opt(Cli::opt_level_input_min)),
+    (b"level-output-max", Opt(Cli::opt_level_output_max)),
+    (b"level-output-min", Opt(Cli::opt_level_output_min)),
+];
 
-Wallpapers should be arranged in the following directory structure:
+struct CliFlag(u32);
 
-    wallpaper_dir/output/workspace_name.{jpg|png|...}
-
-Such as:
-
-    ~/my_wallpapers
-        ├─ eDP-1
-        │    ├─ _default.jpg
-        │    ├─ 1.jpg
-        │    ├─ 2.png
-        │    └─ browser.jpg
-        └─ HDMI-A-1
-             ├─ 1.jpg
-             └─ 3.png
-
-For more details please read the README at:
-https://github.com/gergo-salyi/multibg-wayland/blob/master/README.md")]
-pub struct Cli {
-    /// Brighten images by mapping colors to a range brighter than limit
-    /// (useful for light themes).
-    /// Takes a fraction in range [0.0, 1.0]. (default: 0.0)
-    #[arg(long)]
-    pub level_output_min: Option<f32>,
-    /// Darken images by mapping colors to a range darker than limit
-    /// (useful for dark themes).
-    /// Takes a fraction in range [0.0, 1.0]. (default: 1.0)
-    #[arg(long)]
-    pub level_output_max: Option<f32>,
-    /// Stretch contrast by clipping colors darker than limit to black.
-    /// Takes a fraction in range [0.0, level-input-max]. (default: 0.0)
-    #[arg(long)]
-    pub level_input_min: Option<f32>,
-    /// Stretch contrast by clipping colors brighter than limit to saturation.
-    /// Takes a fraction in range [level-input-min, 1.0]. (default: 1.0)
-    #[arg(long)]
-    pub level_input_max: Option<f32>,
-    /// DEPRECATED: use the --level-* options instead
-    /// (brightness-contrast is difficult to use correctly).
-    /// Adjusts contrast, eg. -c=-25 (default: 0)
-    #[arg(short, long)]
-    pub contrast: Option<f32>,
-    /// DEPRECATED: use the --level-* options instead
-    /// (brightness-contrast is difficult to use correctly).
-    /// Adjusts brightness, eg. -b=-60 (default: 0)
-    #[arg(short, long)]
-    pub brightness: Option<i32>,
-    /// wl_buffer pixel format (default: auto)
-    #[arg(long)]
-    pub pixelformat: Option<PixelFormat>,
-    /// Wayland compositor to connect (autodetect by default)
-    #[arg(long)]
-    pub compositor: Option<crate::compositors::Compositor>,
-    /// upload and serve wallpapers from GPU memory using Vulkan
-    #[arg(long)]
-    pub gpu: bool,
-    /// list output names and make-model-serials and exit
-    #[arg(long)]
-    pub list_outputs: bool,
-    /// directory with: wallpaper_dir/output/workspace_name.{jpg|png|...}
-    #[arg(default_value = ".")]
-    pub wallpaper_dir: String,
+impl CliFlag {
+    const HELP: Self = Self(1 << 0);
+    const VERSION: Self = Self(1 << 1);
+    const LIST_OUTPUTS: Self = Self(1 << 2);
+    const GPU: Self = Self(1 << 3);
+    const PIXEL_FORMAT_BASELINE: Self = Self(1 << 4);
+    const HAS_BRIGHTNESS_CONTRAST: Self = Self(1 << 5);
+    const HAS_LEVELS: Self = Self(1 << 6);
 }
 
-impl Cli {
-    pub fn levels(&self) -> anyhow::Result<Option<Levels>> {
-        let has_levels = self.level_output_min.is_some()
-            || self.level_output_max.is_some()
-            || self.level_input_min.is_some()
-            || self.level_input_max.is_some();
-        let has_brightness_contrast = self.brightness.is_some()
-            || self.contrast.is_some();
-        if has_levels && has_brightness_contrast {
-            bail!("Options --level-* are mutually exclusive with \
-                legacy options --brightness and --contrast");
-        } else if has_levels {
-            let input_min = self.level_input_min.unwrap_or(0.0);
-            let input_max = self.level_input_max.unwrap_or(1.0);
-            let output_min = self.level_output_min.unwrap_or(0.0);
-            let output_max = self.level_output_max.unwrap_or(1.0);
-            if input_min == 0.0 && input_max == 1.0
-                && output_min == 0.0 && output_max == 1.0
-            {
-                return Ok(None)
-            }
-            if !(0.0..=input_max).contains(&input_min) {
-                bail!("Option --level-input-min must be \
-                    a fraction in range [0.0, level-input-max]");
-            }
-            if !(input_min..=1.0).contains(&input_max) {
-                bail!("Option --level-input-max must be \
-                    a fraction in range [level-input-min, 1.0]");
-            }
-            if !(0.0..=1.0).contains(&output_min) {
-                bail!("Option --level-output-min must be \
-                    a fraction in range [0.0, 1.0]");
-            }
-            if !(0.0..=1.0).contains(&output_max) {
-                bail!("Option --level-output-max must be \
-                    a fraction in range [0.0, 1.0]");
-            }
-            Ok(Some(Levels { input_min, input_max, output_min, output_max }))
-        } else if has_brightness_contrast {
-            let brightness = self.brightness.unwrap_or(0);
-            let contrast = self.contrast.unwrap_or(0.0);
-            if brightness == 0 && contrast == 0.0 {
-                return Ok(None)
-            }
-            let levels = Levels::from_legacy(brightness, contrast);
-            warn_brightness_contrast(brightness, contrast, &levels);
-            Ok(Some(levels))
-        } else {
-            Ok(None)
+pub struct Cli {
+    pub wallpaper_dir: Option<Box<Path>>,
+    pub contrast: f32,
+    pub brightness: i32,
+    pub levels: Levels,
+    pub compositor: Option<Compositor>,
+    flags: CliFlag,
+}
+
+impl Default for Cli {
+    fn default() -> Self {
+        Self {
+            wallpaper_dir: None,
+            contrast: 0.0,
+            brightness: 0,
+            levels: Levels {
+                output_min: 0.0,
+                output_max: 1.0,
+                input_min: 0.0,
+                input_max: 1.0,
+            },
+            compositor: None,
+            flags: CliFlag(0),
         }
     }
 }
 
-fn warn_brightness_contrast(
-    brightness: i32,
-    contrast: f32,
-    levels: &Levels,
-) {
-    let mut w = String::with_capacity(2000);
-    write!(w, "Options --brightness and --contrast are deprecated, \
-        they are difficult to use correctly. Use the --level-* \
-        options instead, see --help. Current").unwrap();
-    if brightness != 0 {
-        write!(w, " --brightness={}", brightness).unwrap();
+impl Cli {
+    pub fn parse() -> Result<Self, ()> {
+        let mut cli = Self::default();
+        cli.parse_env()?;
+        cli.parse_args()?;
+        if cli.get(CliFlag::HELP) {
+            stdout().lock().write_all(HELP_TXT.as_bytes()).unwrap();
+        } else if cli.get(CliFlag::VERSION) {
+            println!("{PKG_NAME} {PKG_VERSION}");
+        }
+        Ok(cli)
     }
-    if contrast != 0.0 {
-        write!(w, " --contrast={}", contrast).unwrap();
+
+    pub fn done(&self) -> bool {
+        self.get(CliFlag::HELP) || self.get(CliFlag::VERSION)
     }
-    write!(w, " is equivalent to").unwrap();
-    if levels.output_min != 0.0 {
-        write!(w, " --level-output-min={}", levels.output_min).unwrap();
+
+    pub fn list_outputs(&self) -> bool {
+        self.get(CliFlag::LIST_OUTPUTS)
     }
-    if levels.output_max != 1.0 {
-        write!(w, " --level-output-max={}", levels.output_max).unwrap();
+
+    pub fn gpu(&self) -> bool {
+        self.get(CliFlag::GPU)
     }
-    if levels.input_min != 0.0 {
-        write!(w, " --level-input-min={}", levels.input_min).unwrap();
+
+    pub fn pixel_format_baseline(&self) -> bool {
+        self.get(CliFlag::PIXEL_FORMAT_BASELINE)
     }
-    if levels.input_max != 1.0 {
-        write!(w, " --level-input-max={}", levels.input_max).unwrap();
+
+    pub fn has_levels(&self) -> bool {
+        self.get(CliFlag::HAS_LEVELS)
     }
-    warn!("{}", w);
+
+    pub fn has_brightness_contrast(&self) -> bool {
+        self.get(CliFlag::HAS_BRIGHTNESS_CONTRAST)
+    }
+
+    fn get(&self, flag: CliFlag) -> bool {
+        self.flags.0 & flag.0 == flag.0
+    }
+
+    fn set(&mut self, flag: CliFlag) {
+        self.flags.0 |= flag.0;
+    }
+
+    fn unset(&mut self, flag: CliFlag) {
+        self.flags.0 &= !flag.0;
+    }
+
+    fn positional(&mut self, bytes: &[u8]) -> Result<(), ()> {
+        if let Some(wallpaper_dir) = self.wallpaper_dir.as_ref() {
+            error!("duplicate wallpaper_dir argument '{}' after '{}'",
+                fmt_bytes(bytes), wallpaper_dir.display());
+            Err(())
+        } else {
+            self.wallpaper_dir = Some(
+                Box::from(Path::new(OsStr::from_bytes(bytes)))
+            );
+            Ok(())
+        }
+    }
+
+    fn flag_gpu(&mut self) -> Result<(), ()> {
+        self.set(CliFlag::GPU);
+        Ok(())
+    }
+
+    fn flag_no_gpu(&mut self) -> Result<(), ()> {
+        self.unset(CliFlag::GPU);
+        Ok(())
+    }
+
+    fn flag_help(&mut self) -> Result<(), ()> {
+        self.set(CliFlag::HELP);
+        Ok(())
+    }
+
+    fn flag_list_outputs(&mut self) -> Result<(), ()> {
+        self.set(CliFlag::LIST_OUTPUTS);
+        Ok(())
+    }
+
+    fn flag_version(&mut self) -> Result<(), ()> {
+        self.set(CliFlag::VERSION);
+        Ok(())
+    }
+
+    fn opt_brightness(&mut self, bytes: &[u8]) -> Result<(), ()> {
+        if self.get(CliFlag::HAS_LEVELS) {
+            conflict_levels_legacy();
+            return Err(())
+        }
+        if let Some(val) = parse_i32_in_range(bytes, -255..=255) {
+            self.brightness = val;
+            self.set(CliFlag::HAS_BRIGHTNESS_CONTRAST);
+            Ok(())
+        } else {
+            invalid("brightness", bytes, fmt_range("-255", "255"));
+            Err(())
+        }
+    }
+
+    fn opt_compositor(&mut self, bytes: &[u8]) -> Result<(), ()> {
+        self.compositor = match bytes {
+            b"auto" => None,
+            b"sway" => Some(Compositor::Sway),
+            b"hyprland" => Some(Compositor::Hyprland),
+            b"niri" => Some(Compositor::Niri),
+            other => {
+                invalid("compositor", other,
+                    fmt_list(&["auto", "sway", "hyprland", "niri"]));
+                return Err(())
+            },
+        };
+        Ok(())
+    }
+
+    fn opt_contrast(&mut self, bytes: &[u8]) -> Result<(), ()> {
+        if self.get(CliFlag::HAS_LEVELS) {
+            conflict_levels_legacy();
+            return Err(())
+        }
+        if let Some(val) = parse_f32_in_range(bytes, -100.0..=f32::MAX) {
+            self.contrast = val;
+            self.set(CliFlag::HAS_BRIGHTNESS_CONTRAST);
+            Ok(())
+        } else {
+            invalid("contrast", bytes, fmt_range("-100.0", "f32::MAX"));
+            Err(())
+        }
+    }
+
+    fn opt_level_input_max(&mut self, bytes: &[u8]) -> Result<(), ()> {
+        if self.get(CliFlag::HAS_BRIGHTNESS_CONTRAST) {
+            conflict_levels_legacy();
+            return Err(())
+        }
+        if let Some(val) = parse_f32_in_range(
+            bytes,
+            self.levels.input_min..=1.0,
+        ) {
+            self.levels.input_max = val;
+            self.set(CliFlag::HAS_LEVELS);
+            Ok(())
+        } else {
+            invalid("level-input-max", bytes,
+                fmt_range("level-input-min", "1.0"));
+            Err(())
+        }
+    }
+
+    fn opt_level_input_min(&mut self, bytes: &[u8]) -> Result<(), ()> {
+        if self.get(CliFlag::HAS_BRIGHTNESS_CONTRAST) {
+            conflict_levels_legacy();
+            return Err(())
+        }
+        if let Some(val) = parse_f32_in_range(
+            bytes,
+            0.0..=self.levels.input_max,
+        ) {
+            self.levels.input_min = val;
+            self.set(CliFlag::HAS_LEVELS);
+            Ok(())
+        } else {
+            invalid("level-input-min", bytes,
+                fmt_range("0.0", "level-input-max"));
+            Err(())
+        }
+    }
+
+    fn opt_level_output_max(&mut self, bytes: &[u8]) -> Result<(), ()> {
+        if self.get(CliFlag::HAS_BRIGHTNESS_CONTRAST) {
+            conflict_levels_legacy();
+            return Err(())
+        }
+        if let Some(val) = parse_f32_in_range(bytes, 0.0..=1.0) {
+            self.levels.output_max = val;
+            self.set(CliFlag::HAS_LEVELS);
+            Ok(())
+        } else {
+            invalid("level-output-max", bytes, fmt_range("0.0", "1.0"));
+            Err(())
+        }
+    }
+
+    fn opt_level_output_min(&mut self, bytes: &[u8]) -> Result<(), ()> {
+        if self.get(CliFlag::HAS_BRIGHTNESS_CONTRAST) {
+            conflict_levels_legacy();
+            return Err(())
+        }
+        if let Some(val) = parse_f32_in_range(bytes, 0.0..=1.0) {
+            self.levels.output_min = val;
+            self.set(CliFlag::HAS_LEVELS);
+            Ok(())
+        } else {
+            invalid("level-output-min", bytes, fmt_range("0.0", "1.0"));
+            Err(())
+        }
+    }
+
+    fn opt_pixel_format(&mut self, bytes: &[u8]) -> Result<(), ()> {
+        match bytes {
+            b"auto" => self.unset(CliFlag::PIXEL_FORMAT_BASELINE),
+            b"baseline" => self.set(CliFlag::PIXEL_FORMAT_BASELINE),
+            other => {
+                invalid("pixelformat", other, fmt_list(&["auto", "baseline"]));
+                return Err(())
+            },
+        };
+        Ok(())
+    }
+
+    fn parse_env(&mut self) -> Result<(), ()> {
+        Ok(())
+    }
+
+    fn parse_args(&mut self) -> Result<(), ()> {
+        let mut args = args_os()
+            .map(|os_string| os_string.into_vec())
+            .skip(1);
+        let mut seen_dashdash = false;
+        while let Some(arg) = args.next() {
+            let mut arg = arg.as_slice();
+            if seen_dashdash || !arg.starts_with(b"-") || arg == b"-" {
+                self.positional(arg)?;
+                continue
+            }
+            arg = &arg[1..];
+            if !arg.starts_with(b"-") {
+                self.parse_shorts(arg, &mut args)?;
+                continue
+            }
+            arg = &arg[1..];
+            if arg.is_empty() {
+                seen_dashdash = true;
+                continue
+            }
+            self.parse_long(arg, &mut args)?;
+        }
+        Ok(())
+    }
+
+    fn parse_shorts(
+        &mut self,
+        mut arg: &[u8],
+        args: &mut impl Iterator<Item = Vec<u8>>,
+    ) -> Result<(), ()> {
+        while let Some(&short) = arg.first() {
+            arg = &arg[1..];
+            let Some(handler) = short_handler(short) else {
+                unrecognized(fmt_short(short));
+                return Err(())
+            };
+            match handler {
+                Flag(flag_fn) => {
+                    if let Some(b'=') = arg.first() {
+                        excess_value(fmt_short(short), &arg[1..]);
+                        return Err(())
+                    }
+                    flag_fn(self)?;
+                },
+                Opt(opt_fn) => {
+                    if let Some(b'=') = arg.first() {
+                        opt_fn(self, &arg[1..])?;
+                    } else if arg.is_empty() {
+                        let Some(val) = args.next() else {
+                            missing_value(fmt_short(short));
+                            return Err(())
+                        };
+                        opt_fn(self, &val)?;
+                    } else {
+                        opt_fn(self, arg)?;
+                    }
+                    return Ok(())
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn parse_long(
+        &mut self,
+        mut arg: &[u8],
+        args: &mut impl Iterator<Item = Vec<u8>>,
+    ) -> Result<(), ()> {
+        let mut value = None;
+        if let Some(idx) = arg.iter().position(|&b| b == b'=') {
+            value = Some(&arg[idx + 1..]);
+            arg = &arg[..idx];
+        }
+        let Some(handler) = long_handler(arg) else {
+            unrecognized(fmt_long(arg));
+            return Err(())
+        };
+        match handler {
+            Flag(flag_fn) => {
+                if let Some(val) = value {
+                    excess_value(fmt_long(arg), val);
+                    return Err(())
+                }
+                flag_fn(self)?;
+            },
+            Opt(opt_fn) => {
+                if let Some(val) = value {
+                    opt_fn(self, val)?;
+                } else {
+                    let Some(val) = args.next() else {
+                        missing_value(fmt_long(arg));
+                        return Err(())
+                    };
+                    opt_fn(self, &val)?;
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, ValueEnum)]
-pub enum PixelFormat {
-    Auto,
-    Baseline,
+#[derive(Clone, Copy)]
+enum Handler {
+    Flag(fn(&mut Cli) -> Result<(), ()>),
+    Opt(fn(&mut Cli, &[u8]) -> Result<(), ()>),
 }
+use Handler::{Flag, Opt};
+
+fn short_handler(short: u8) -> Option<Handler> {
+    let idx = SHORTS.binary_search_by_key(&short, |elem| elem.0).ok()?;
+    Some(SHORTS[idx].1)
+}
+
+fn long_handler(long: &[u8]) -> Option<Handler> {
+    let idx = LONGS.binary_search_by(|elem|
+        elem.0.len().cmp(&long.len()).then_with(|| elem.0.cmp(long))
+    ).ok()?;
+    Some(LONGS[idx].1)
+}
+
+fn parse_i32_in_range(
+    bytes: &[u8],
+    range: impl RangeBounds<i32>,
+) -> Option<i32> {
+    let num = str::from_utf8(bytes).ok()?.parse::<i32>().ok()?;
+    if range.contains(&num) {
+        Some(num)
+    } else {
+        None
+    }
+}
+
+fn parse_f32_in_range(
+    bytes: &[u8],
+    range: impl RangeBounds<f32>,
+) -> Option<f32> {
+    let num = str::from_utf8(bytes).ok()?.parse::<f32>().ok()?;
+    if range.contains(&num) {
+        Some(num)
+    } else {
+        None
+    }
+}
+
+#[cold]
+fn print_error(message: impl Display) {
+    eprintln!(
+        "{PKG_NAME} {PKG_VERSION}\n\
+        ERROR {message}\n\
+        Try '{PKG_NAME} --help' for more information.",
+    );
+}
+
+macro_rules! error {
+    ($($arg:tt)*) => { print_error(format_args!($($arg)*)) }
+}
+use error;
+
+fn unrecognized(opt: impl Display) {
+    error!("unrecognized option '{}'", opt);
+}
+
+fn excess_value(flag: impl Display, val: &[u8]) {
+    error!("flag '{flag}' takes no value but found '{}'", fmt_bytes(val));
+}
+
+fn missing_value(opt: impl Display) {
+    error!("missing value for option '{opt}'");
+}
+
+fn invalid(opt: &str, bytes: &[u8], valid: impl Display) {
+    error!("invalid {opt} value '{}', expected: {valid}", fmt_bytes(bytes));
+}
+
+fn conflict_levels_legacy() {
+    error!("options --level-* are mutually exclusive with \
+        legacy options brightness and contrast");
+}
+
+fn fmt_bytes(bytes: &[u8]) -> impl Display {
+    fmt::from_fn(|f| {
+        // See std::str::Utf8Chunks
+        for chunk in bytes.utf8_chunks() {
+            f.write_str(chunk.valid())?;
+            if !chunk.invalid().is_empty() {
+                f.write_char(char::REPLACEMENT_CHARACTER)?;
+            }
+        }
+        Ok(())
+    })
+}
+
+fn fmt_short(short: u8) -> impl Display {
+    fmt::from_fn(move |f| write!(f, "-{}", fmt_bytes(&[short])))
+}
+
+fn fmt_long(long: &[u8]) -> impl Display {
+    fmt::from_fn(|f| write!(f, "--{}", fmt_bytes(long)))
+}
+
+fn fmt_list(values: &[&str]) -> impl Display {
+    fmt::from_fn(|f| {
+        let mut vals = values.iter();
+        if let Some(val) = vals.next() {
+            f.write_str(val)?;
+        }
+        for val in vals {
+            f.write_str(", ")?;
+            f.write_str(val)?;
+        }
+        Ok(())
+    })
+}
+
+fn fmt_range(start: &str, end: &str) -> impl Display {
+    fmt::from_fn(move |f| write!(f, "in range [{start}, {end}]"))
+}
+
+const _: () = {
+    let mut i = 1;
+    while i < SHORTS.len() {
+        if SHORTS[i - 1].0 > SHORTS[i].0 {
+            panic!("SHORTS not sorted")
+        }
+        i += 1;
+    }
+
+    let mut i = 1;
+    while i < LONGS.len() {
+        let left = LONGS[i - 1].0;
+        let right = LONGS[i].0;
+        if left.len() > right.len() {
+            panic!("LONGS not sorted")
+        } else if left.len() == right.len() {
+            let mut j = 0;
+            while j < left.len() {
+                if left[j] < right[j] {
+                    break
+                } else if left[j] > right[j] {
+                    panic!("LONGS not sorted")
+                }
+                j += 1;
+            }
+        }
+        i += 1;
+    }
+};

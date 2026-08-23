@@ -13,17 +13,18 @@ mod signal;
 mod wayland;
 
 use std::{
-    env,
+    env::{self, current_dir},
+    fmt,
     io,
     os::fd::AsFd,
-    path::{Path, PathBuf},
+    path::PathBuf,
+    process::ExitCode,
     sync::{
         Arc,
         mpsc::{channel, Receiver},
     },
 };
 
-use clap::Parser;
 use log::{debug, error, info, warn};
 use rustix::{
     event::{poll, PollFd, PollFlags},
@@ -47,7 +48,7 @@ use smithay_client_toolkit::reexports::protocols
     ::wp::viewporter::client::wp_viewporter::WpViewporter;
 
 use crate::{
-    cli::{Cli, PixelFormat},
+    cli::Cli,
     compositors::{Compositor, ConnectionTask, WorkspaceVisible},
     cpu::CpuFeatures,
     gpu::Gpu,
@@ -56,6 +57,9 @@ use crate::{
     signal::SignalPipe,
     wayland::BackgroundLayer,
 };
+
+const PKG_NAME: &str = env!("CARGO_PKG_NAME");
+const PKG_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 struct State {
     compositor_state: CompositorState,
@@ -90,11 +94,14 @@ impl State {
     }
 }
 
-fn main() -> Result<(), ()> {
-    run().map_err(|e| { error!("{e:#}"); })
+fn main() -> ExitCode {
+    match run() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(()) => ExitCode::FAILURE,
+    }
 }
 
-fn run() -> anyhow::Result<()> {
+fn run() -> Result<(), ()> {
     let log_env = env_logger::Env::default()
         .default_filter_or(
             #[cfg(debug_assertions)]
@@ -106,26 +113,40 @@ fn run() -> anyhow::Result<()> {
         .format_timestamp(None)
         .init();
 
-    info!(concat!(env!("CARGO_PKG_NAME"), " ", env!("CARGO_PKG_VERSION")));
-
     let show_serials = env::var_os("MULTIBG_DEBUG_SHOW_SERIALS").is_some();
 
-    let cli = Cli::parse();
+    let cli = Cli::parse()?;
+    if cli.done() {
+        return Ok(())
+    }
+
+    eprintln!("{PKG_NAME} {PKG_VERSION}");
 
     let compositor = cli.compositor
         .or_else(Compositor::from_env)
         .unwrap_or(Compositor::Sway);
 
-    if cli.list_outputs {
+    if cli.list_outputs() {
         for output in compositor.list_outputs() {
             println!("{}: '{}'", output.name, output.make_model_serial);
         }
         return Ok(())
     }
 
-    let wallpaper_dir = Path::new(&cli.wallpaper_dir).canonicalize().unwrap();
+    let wallpaper_dir = match cli.wallpaper_dir.as_ref() {
+        Some(dir) => dir.canonicalize().unwrap(),
+        None => current_dir().unwrap().canonicalize().unwrap(),
+    };
     let cpu_features = CpuFeatures::detect();
-    let color_transform = cli.levels()?.map(ColorTransform::from_levels);
+    let color_transform = if cli.has_levels() {
+        Some(ColorTransform::from_levels(cli.levels))
+    } else if cli.has_brightness_contrast() {
+        let levels = Levels::from_legacy(cli.brightness, cli.contrast);
+        warn_brightness_contrast(cli.brightness, cli.contrast, &levels);
+        Some(ColorTransform::from_levels(levels))
+    } else {
+        None
+    };
 
     // ********************************
     //     Initialize wayland client
@@ -138,7 +159,7 @@ fn run() -> anyhow::Result<()> {
     let compositor_state = CompositorState::bind(&globals, &qh).unwrap();
     let layer_shell = LayerShell::bind(&globals, &qh).unwrap();
     let shm = Shm::bind(&globals, &qh).unwrap();
-    let shm_format = if cli.pixelformat == Some(PixelFormat::Baseline) {
+    let shm_format = if cli.pixel_format_baseline() {
         debug!("Using shm format: {:?}", wl_shm::Format::Xrgb8888);
         Some(wl_shm::Format::Xrgb8888)
     } else {
@@ -152,7 +173,7 @@ fn run() -> anyhow::Result<()> {
 
     let dmabuf_state = DmabufState::new(&globals, &qh);
     let mut gpu = None;
-    if cli.gpu {
+    if cli.gpu() {
         if let Some(version) = dmabuf_state.version() {
             if version >= 4 {
                 debug!("Using Linux DMA-BUF version {version}");
@@ -326,4 +347,36 @@ fn handle_sway_event(
             continue
         };
     }
+}
+
+fn warn_brightness_contrast(
+    brightness: i32,
+    contrast: f32,
+    levels: &Levels,
+) {
+    warn!("{}", fmt::from_fn(|w| {
+        write!(w, "Options --brightness and --contrast are deprecated, \
+            they are difficult to use correctly. Use the --level-* \
+            options instead, see --help. Current")?;
+        if brightness != 0 {
+            write!(w, " --brightness={}", brightness)?;
+        }
+        if contrast != 0.0 {
+            write!(w, " --contrast={}", contrast)?;
+        }
+        write!(w, " is equivalent to")?;
+        if levels.output_min != 0.0 {
+            write!(w, " --level-output-min={}", levels.output_min)?;
+        }
+        if levels.output_max != 1.0 {
+            write!(w, " --level-output-max={}", levels.output_max)?;
+        }
+        if levels.input_min != 0.0 {
+            write!(w, " --level-input-min={}", levels.input_min)?;
+        }
+        if levels.input_max != 1.0 {
+            write!(w, " --level-input-max={}", levels.input_max)?;
+        }
+        Ok(())
+    }));
 }

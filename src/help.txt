@@ -1,0 +1,60 @@
+Usage:
+  multibg-wayland [options] [--] [wallpaper_dir]
+
+Set a different wallpaper for each Sway / Hyprland / niri workspace.
+
+Argument wallpaper_dir is the root of a directory structure:
+  <wallpaper_dir>/<output>/<workspace_name>.{jpg|png|...}
+Where:
+  wallpaper_dir
+      Directory. (default: current working directory)
+  output
+      Directory (or symlink) named as a Wayland output's name
+      or make-model-serial string.
+      Try 'multibg-wayland --list-outputs'.
+  workspace_name
+      Wallpaper image file (or symlink) named as a workspace's name or number,
+      or the special name '_default' for all other workspaces.
+For example:
+  my_wallpapers/{HDMI-A-1,eDP-1}/{_default.jpg,1.jpg,2.png,browser.png}
+
+Options:
+  -b, --brightness <brightness>
+      Deprecated, use the --level-* options instead. Brightness-contrast
+      is difficult to use correctly. Adjusts brightness, e.g. -b=-60
+      brightness: [-255, 255] (default: 0)
+  -c, --constrast <contrast>
+      Deprecated, use the --level-* options instead. Brightness-contrast
+      is difficult to use correctly. Adjusts contrast, e.g. -c=-25
+      contrast: [-100.0, f32::MAX] (default: 0.0)
+  --compositor <compositor>
+      Wayland compositor to connect to.
+      compositor: auto, sway, hyprland, niri (default: auto)
+  --gpu; --no-gpu
+      Upload and serve wallpapers from GPU memory using Vulkan.
+      Recommended to try enabling this. (default: no)
+  --level-input-min <level_input_min>
+      Stretch contrast by clipping colors darker than limit to black.
+      level_input_min: [0.0, level_input_max] (default: 0.0)
+  --level-input-max <level_input_max>
+      Stretch contrast by clipping colors brighter than limit to saturation.
+      level_input_max: [level_input_min, 1.0] (default: 1.0)
+  --level-output-min <level_output_min>
+      Brighten images by mapping colors to a range brighter than limit.
+      Useful for light themes.
+      level_output_min: [0.0, 1.0] (default: 0.0)
+  --level-output-max <level_output_max>
+      Darken images by mapping colors to a range darker than limit.
+      Useful for dark themes.
+      level_output_max: [0.0, 1.0] (default: 1.0)
+  --list-outputs
+      List output names and make-model-serials and exit.
+  --pixelformat <pixelformat>
+      Try to force wl_buffer pixel format to work around bugs.
+      pixelformat: auto, baseline (default: auto)
+  -h, --help
+      Print help.
+  -V, --version
+      Print version.
+
+For more details see multibg-wayland(1).

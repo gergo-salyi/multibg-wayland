@@ -19,7 +19,7 @@ use log::{debug, warn};
 
 use crate::poll::Waker;
 
-#[derive(Clone, Copy, Debug, clap::ValueEnum)]
+#[derive(Clone, Copy, Debug)]
 pub enum Compositor {
     Hyprland,
     Niri,
