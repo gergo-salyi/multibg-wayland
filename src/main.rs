@@ -50,7 +50,7 @@ use smithay_client_toolkit::reexports::protocols
 
 use crate::{
     cli::Cli,
-    compositors::{Compositor, ConnectionTask, WorkspaceVisible},
+    compositors::{Compositor, CompositorCtx, EventSender, WorkspaceVisible},
     cpu::CpuFeatures,
     gpu::Gpu,
     image::{ColorTransform, Levels},
@@ -72,7 +72,7 @@ struct State {
     wallpaper_dir: PathBuf,
     shm_format: Option<wl_shm::Format>,
     background_layers: Vec<BackgroundLayer>,
-    compositor_connection_task: ConnectionTask,
+    compositor_ctx: Box<dyn CompositorCtx>,
     cpu_features: CpuFeatures,
     color_transform: Option<ColorTransform>,
     dmabuf_state: DmabufState,
@@ -127,10 +127,10 @@ fn run() -> Result<(), ()> {
         .or_else(Compositor::from_env)
         .unwrap_or(Compositor::Sway);
 
+    let mut compositor_ctx = compositor.context();
+
     if cli.list_outputs() {
-        for output in compositor.list_outputs() {
-            println!("{}: '{}'", output.name, output.make_model_serial);
-        }
+        compositor_ctx.list_outputs();
         return Ok(())
     }
 
@@ -210,9 +210,7 @@ fn run() -> Result<(), ()> {
         wallpaper_dir,
         shm_format,
         background_layers: Vec::new(),
-        compositor_connection_task: ConnectionTask::new(
-            compositor, tx.clone(), Arc::clone(&waker)
-        ),
+        compositor_ctx,
         cpu_features,
         color_transform,
         dmabuf_state,
@@ -230,7 +228,7 @@ fn run() -> Result<(), ()> {
 
     let mut poll = Poll::with_capacity(3);
     let token_wayland = poll.add_readable(&conn);
-    ConnectionTask::spawn_subscribe_event_loop(compositor, tx, waker.clone());
+    state.compositor_ctx.subscribe(EventSender::new(tx, waker.clone()));
     let token_compositor = poll.add_readable(&waker);
     let signal_pipe = SignalPipe::new()
         .map_err(|e| error!("Failed to set up signal handling: {e}"))
@@ -327,26 +325,29 @@ fn handle_sway_event(
     rx: &Receiver<WorkspaceVisible>,
 ) {
     while let Ok(workspace) = rx.try_recv() {
-        // Find the background layer that of the output where the workspace is
-        if let Some(affected_bg_layer) = state.background_layers.iter_mut()
-            .find(|bg_layer| bg_layer.output_name == workspace.output)
-        {
-            affected_bg_layer.draw_workspace_bg(
-                &workspace.workspace_name,
-                workspace.workspace_number,
-            );
-        } else {
-            error!(
-                "Workspace '{}' is on an unknown output '{}', \
-                    known outputs were: {}",
-                workspace.workspace_name,
-                workspace.output,
-                state.background_layers.iter()
-                    .map(|bg_layer| bg_layer.output_name.as_str())
-                    .collect::<Vec<_>>().join(", ")
-            );
-            continue
-        };
+        handle_visible_workspace(state, workspace);
+    }
+}
+
+fn handle_visible_workspace(state: &mut State, workspace: WorkspaceVisible) {
+    // Find the background layer that of the output where the workspace is
+    if let Some(affected_bg_layer) = state.background_layers.iter_mut()
+        .find(|bg_layer| bg_layer.output_name == workspace.output)
+    {
+        affected_bg_layer.draw_workspace_bg(
+            &workspace.workspace_name,
+            workspace.workspace_number,
+        );
+    } else {
+        error!(
+            "Workspace '{}' is on an unknown output '{}', \
+            known outputs were: {}",
+            workspace.workspace_name,
+            workspace.output,
+            state.background_layers.iter()
+            .map(|bg_layer| bg_layer.output_name.as_str())
+            .collect::<Vec<_>>().join(", ")
+        );
     }
 }
 

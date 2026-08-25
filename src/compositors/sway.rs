@@ -1,6 +1,7 @@
+use super::*;
+
 use std::{
     borrow::Cow,
-    env,
     os::fd::OwnedFd,
 };
 
@@ -12,21 +13,65 @@ use rustix::{
         socket_with, SocketAddrUnix, SocketFlags, SocketType,
     },
 };
-use serde::Deserialize;
-
-use super::{
-    CompositorInterface,
-    EventSender,
-    make_model_serial,
-    OutputInfo,
-    WorkspaceVisible,
-};
 
 const MAGIC: &[u8; 6] = b"i3-ipc";
 const GET_WORKSPACES: u32 = 1;
 const SUBSCRIBE: u32 = 2;
 const GET_OUTPUTS: u32 = 3;
 const EVENT_WORKSPACE: u32 = 0x80000000;
+
+pub struct Sway {
+    swaysock: Box<Path>,
+    subscribe_task: Option<JoinHandle<()>>,
+}
+
+impl Sway {
+    pub fn new() -> Self {
+        let swaysock = env::var_os("SWAYSOCK").unwrap();
+        Self {
+            swaysock: PathBuf::from(swaysock).into_boxed_path(),
+            subscribe_task: None,
+        }
+    }
+
+    fn connect(&self) -> SwayConnectionTask {
+        SwayConnectionTask::connect(&self.swaysock)
+    }
+}
+
+impl CompositorCtx for Sway {
+    fn list_outputs(&mut self) {
+        let outputs = self.connect().outputs();
+        let mut stdout = stdout().lock();
+        for output in outputs {
+            writeln!(
+                stdout,
+                "{}: '{}'",
+                output.name,
+                output.make_model_serial,
+            ).unwrap();
+        }
+    }
+
+    fn visible_workspaces(&mut self) -> Vec<WorkspaceVisible> {
+        self.connect().request_visible_workspaces()
+    }
+
+    fn make_model_serial(&mut self, output: &str) -> String {
+        self.connect().outputs()
+            .find(|output_info| output_info.name == output).unwrap()
+            .make_model_serial
+    }
+
+    fn subscribe(&mut self, event_sender: EventSender) {
+        assert!(self.subscribe_task.is_none());
+        let conn = self.connect();
+        let join_handle = thread::Builder::new()
+            .name(String::from("sway-connection"))
+            .spawn(|| conn.subscribe_event_loop(event_sender)).unwrap();
+        self.subscribe_task = Some(join_handle);
+    }
+}
 
 pub struct SwayConnectionTask {
     socket: OwnedFd,
@@ -36,8 +81,7 @@ pub struct SwayConnectionTask {
 }
 
 impl SwayConnectionTask {
-    pub fn new() -> Self {
-        let swaysock = env::var_os("SWAYSOCK").unwrap();
+    fn connect(swaysock: &Path) -> Self {
         let socket = socket_with(
             AddressFamily::UNIX,
             SocketType::STREAM,
@@ -121,6 +165,23 @@ impl SwayConnectionTask {
                 Err(e) => panic!("Failed to read Sway IPC socket: {e}"),
             }
         }
+    }
+
+    fn outputs(&mut self) -> impl Iterator<Item = OutputInfo> + use<> {
+        self.send(GET_OUTPUTS, b"");
+        let (reply_type, payload) = self.recv();
+        assert_eq!(reply_type, GET_OUTPUTS);
+        let outputs: Vec<Output> = serde_json::from_slice(payload)
+            .unwrap();
+        outputs.into_iter()
+            .map(|output| OutputInfo {
+                name: output.name.into_owned(),
+                make_model_serial: make_model_serial(
+                    output.make.as_ref(),
+                    output.model.as_ref(),
+                    output.serial.as_ref(),
+                ),
+            })
     }
 }
 

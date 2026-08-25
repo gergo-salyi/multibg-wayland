@@ -1,22 +1,69 @@
 // https://wiki.hyprland.org/IPC/
 
+use super::*;
+
 use std::{
     env,
-    io::{Read, Write},
+    io::{Read, stdout, Write},
     os::unix::net::UnixStream,
     path::PathBuf,
+    thread::{self, JoinHandle},
 };
 
 use log::debug;
 use serde::Deserialize;
 
-use super::{
-    CompositorInterface,
-    EventSender,
-    make_model_serial,
-    OutputInfo,
-    WorkspaceVisible,
-};
+pub struct Hyprland {
+    subscribe_task: Option<JoinHandle<()>>,
+}
+
+impl Hyprland {
+    pub fn new() -> Self {
+        Self {
+            subscribe_task: None,
+        }
+    }
+}
+
+impl CompositorCtx for Hyprland {
+    fn list_outputs(&mut self) {
+        let monitors = monitors();
+        let mut stdout = stdout().lock();
+        for monitor in monitors {
+            writeln!(
+                stdout,
+                "{}: '{}'",
+                monitor.name,
+                make_model_serial(
+                    &monitor.make,
+                    &monitor.model,
+                    &monitor.serial,
+                ),
+            ).unwrap();
+        }
+    }
+
+    fn visible_workspaces(&mut self) -> Vec<WorkspaceVisible> {
+        current_state().visible_workspaces
+    }
+
+    fn make_model_serial(&mut self, output: &str) -> String {
+        let monitor = monitors().into_iter()
+            .find(|monitor| monitor.name == output).unwrap();
+        make_model_serial(&monitor.make, &monitor.model, &monitor.serial)
+    }
+
+    fn subscribe(&mut self, event_sender: EventSender) {
+        assert!(self.subscribe_task.is_none());
+        let join_handle = thread::Builder::new()
+            .name(String::from("hyprland-conn"))
+            .spawn(|| {
+                HyprlandConnectionTask::new()
+                    .subscribe_event_loop(event_sender)
+            }).unwrap();
+        self.subscribe_task = Some(join_handle);
+    }
+}
 
 pub struct HyprlandConnectionTask {}
 

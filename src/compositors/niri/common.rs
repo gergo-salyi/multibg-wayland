@@ -1,21 +1,61 @@
+use super::*;
+
 use std::{
     collections::HashMap,
-    io,
 };
 
-use log::debug;
 use niri_ipc::{
     Event, Output, Request, Response, Workspace,
     socket::Socket,
 };
 
-use super::{
-    CompositorInterface,
-    EventSender,
-    make_model_serial,
-    OutputInfo,
-    WorkspaceVisible,
-};
+pub struct Niri {
+    subscribe_task: Option<JoinHandle<()>>,
+}
+
+impl Niri {
+    pub fn new() -> Self {
+        Self {
+            subscribe_task: None,
+        }
+    }
+}
+
+impl CompositorCtx for Niri {
+    fn list_outputs(&mut self) {
+        let outputs = NiriConnectionTask::new().request_outputs();
+        let mut stdout = stdout().lock();
+        for output in outputs {
+            writeln!(
+                stdout,
+                "{}: '{}'",
+                output.name,
+                output.make_model_serial,
+            ).unwrap();
+        }
+    }
+
+    fn visible_workspaces(&mut self) -> Vec<WorkspaceVisible> {
+        NiriConnectionTask::new().request_visible_workspaces()
+    }
+
+    fn make_model_serial(&mut self, output: &str) -> String {
+        NiriConnectionTask::new().request_outputs().into_iter()
+            .find(|output_info| output_info.name == output).unwrap()
+            .make_model_serial
+    }
+
+    fn subscribe(&mut self, event_sender: EventSender) {
+        assert!(self.subscribe_task.is_none());
+        let join_handle = thread::Builder::new()
+            .name(String::from("niri-connection"))
+            .spawn(|| {
+                NiriConnectionTask::new()
+                    .subscribe_event_loop(event_sender)
+            }).unwrap();
+        self.subscribe_task = Some(join_handle);
+    }
+}
 
 pub struct NiriConnectionTask {}
 

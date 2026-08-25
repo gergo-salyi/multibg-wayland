@@ -47,7 +47,7 @@ use smithay_client_toolkit::reexports::protocols::wp::{
 };
 
 use crate::{
-    flush_blocking, State,
+    flush_blocking, handle_visible_workspace, State,
     file_io,
     gpu::{
         DRM_FORMAT_XRGB8888, fmt_modifier,
@@ -399,24 +399,28 @@ impl LayerShellHandler for State {
         configure: LayerSurfaceConfigure,
         _serial: u32,
     ) {
-        // The new layer is ready: request all the visible workspace from sway,
-        // it will get picked up by the main event loop and be drawn from there
+        // The new layer is ready: draw the wallpaper of the current workspace
         let bg_layer = self.background_layers.iter_mut()
             .find(|bg_layer| &bg_layer.layer == layer).unwrap();
-
-        if !bg_layer.configured {
-            bg_layer.configured = true;
-            self.compositor_connection_task
-                .request_visible_workspace(&bg_layer.output_name);
-
-            debug!("Configured layer on output: {}, new surface size {}x{}",
-                bg_layer.output_name,
-                configure.new_size.0, configure.new_size.1);
-        } else {
+        if bg_layer.configured {
             debug!("Ignoring configure for already configured layer \
                 on output: {}, new surface size {}x{}",
                 bg_layer.output_name,
                 configure.new_size.0, configure.new_size.1);
+            return
+        }
+        bg_layer.configured = true;
+        debug!("Configured layer on output: {}, new surface size {}x{}",
+            bg_layer.output_name,
+            configure.new_size.0, configure.new_size.1);
+        if !bg_layer.workspace_backgrounds.is_empty()
+            && let Some(workspace) = self.compositor_ctx
+                .visible_workspace(&bg_layer.output_name)
+        {
+            bg_layer.draw_workspace_bg(
+                &workspace.workspace_name,
+                workspace.workspace_number,
+            );
         }
     }
 }
@@ -442,8 +446,8 @@ impl OutputHandler for State {
             return
         };
 
-        let output_make_model_serial = self.compositor_connection_task
-            .request_make_model_serial(&output_name);
+        let output_make_model_serial = self.compositor_ctx
+            .make_model_serial(&output_name);
 
         let Some((width, height)) = info.modes.iter()
             .find(|mode| mode.current)
@@ -763,7 +767,8 @@ impl OutputHandler for State {
 
             // Workspaces on the destroyed output may have been moved anywhere
             // so reset the wallpaper on all the visible workspaces
-            self.compositor_connection_task.request_visible_workspaces();
+            self.compositor_ctx.visible_workspaces().into_iter()
+                .for_each(|workspace| handle_visible_workspace(self, workspace));
 
             debug!(
                 "Dropping {} wallpapers on destroyed output for workspaces: {}",
@@ -1179,6 +1184,16 @@ fn load_wallpapers(
             .collect::<Vec<_>>().join(", "));
     state.background_layers[bg_layer_index].workspace_backgrounds =
         workspace_backgrounds;
+    let bg_layer = &mut state.background_layers[bg_layer_index];
+    if bg_layer.configured
+        && let Some(workspace) = state.compositor_ctx
+            .visible_workspace(&bg_layer.output_name)
+    {
+        bg_layer.draw_workspace_bg(
+            &workspace.workspace_name,
+            workspace.workspace_number,
+        );
+    }
     malloc_trim_all();
     print_memory_stats(&state.background_layers);
 }

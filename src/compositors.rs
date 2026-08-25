@@ -1,16 +1,14 @@
 mod hyprland;
-mod niri2502;
-mod niri2505;
-mod niri2508;
-mod niri2604;
+mod niri;
 mod sway;
 
 use std::{
     env,
+    io::{self, stdout, Write},
     os::unix::ffi::OsStrExt,
-    process::Command,
+    path::{Path, PathBuf},
     sync::{mpsc::Sender, Arc},
-    thread,
+    thread::{self, JoinHandle},
 };
 
 use anyhow::{bail, Context};
@@ -41,14 +39,13 @@ impl Compositor {
     fn from_xdg_desktop_var(xdg_desktop_var: &str) -> Option<Compositor> {
         if let Some(xdg_desktop) = env::var_os(xdg_desktop_var) {
             if xdg_desktop.as_bytes().starts_with(b"sway") {
-                debug!("Selecting compositor Sway based on {xdg_desktop_var}");
+                debug_selecting("Sway", xdg_desktop_var);
                 Some(Compositor::Sway)
             } else if xdg_desktop.as_bytes().starts_with(b"Hyprland") {
-                debug!("Selecting compositor Hyprland based on {}",
-                    xdg_desktop_var);
+                debug_selecting("Hyprland", xdg_desktop_var);
                 Some(Compositor::Hyprland)
             } else if xdg_desktop.as_bytes().starts_with(b"niri") {
-                debug!("Selecting compositor Niri based on {xdg_desktop_var}");
+                debug_selecting("niri", xdg_desktop_var);
                 Some(Compositor::Niri)
             } else {
                 warn!("Unrecognized compositor from {xdg_desktop_var} \
@@ -62,65 +59,47 @@ impl Compositor {
 
     fn from_ipc_socket_var() -> Option<Compositor> {
         if env::var_os("SWAYSOCK").is_some() {
-            debug!("Selecting compositor Sway based on SWAYSOCK");
+            debug_selecting("Sway", "SWAYSOCK");
             Some(Compositor::Sway)
         } else if env::var_os("HYPRLAND_INSTANCE_SIGNATURE").is_some() {
-            debug!("Selecting compositor Hyprland based on \
-                HYPRLAND_INSTANCE_SIGNATURE");
+            debug_selecting("Hyprland", "HYPRLAND_INSTANCE_SIGNATURE");
             Some(Compositor::Hyprland)
         } else if env::var_os("NIRI_SOCKET").is_some() {
-            debug!("Selecting compositor Niri based on NIRI_SOCKET");
+            debug_selecting("niri", "NIRI_SOCKET");
             Some(Compositor::Niri)
         } else {
             None
         }
     }
 
-    pub fn list_outputs(&self) -> Vec<OutputInfo> {
+    pub fn context(self) -> Box<dyn CompositorCtx> {
         match self {
-            Compositor::Sway =>
-                sway::SwayConnectionTask::new().request_outputs(),
-            Compositor::Hyprland =>
-                hyprland::HyprlandConnectionTask::new().request_outputs(),
-            Compositor::Niri => match get_niri_version() {
-                Ok(niri_verison) => {
-                    if niri_verison >= niri_ver(25, 11) {
-                        niri2604::NiriConnectionTask::new().request_outputs()
-                    } else if niri_verison >= niri_ver(25, 8) {
-                        niri2508::NiriConnectionTask::new().request_outputs()
-                    } else if niri_verison >= niri_ver(25, 5) {
-                        niri2505::NiriConnectionTask::new().request_outputs()
-                    } else {
-                        niri2502::NiriConnectionTask::new().request_outputs()
-                    }
-                },
-                Err(e) => {
-                    warn!("Failed to get niri version: {e:#}");
-                    niri2604::NiriConnectionTask::new().request_outputs()
-                }
-            }
+            Compositor::Sway => Box::new(sway::Sway::new()),
+            Compositor::Hyprland => Box::new(hyprland::Hyprland::new()),
+            Compositor::Niri => niri::context(),
         }
     }
 }
 
-// impl From<&str> for Compositor {
-//     fn from(s: &str) -> Self {
-//         match s {
-//             "sway" => Compositor::Sway,
-//             "niri" => Compositor::Niri,
-//             _ => panic!("Unknown compositor"),
-//         }
-//     }
-// }
+pub trait CompositorCtx {
+    fn list_outputs(&mut self);
+    fn visible_workspaces(&mut self) -> Vec<WorkspaceVisible>;
+    fn make_model_serial(&mut self, output: &str) -> String;
+    fn subscribe(&mut self, event_sender: EventSender);
+
+    fn visible_workspace(&mut self, output: &str) -> Option<WorkspaceVisible> {
+        self.visible_workspaces().into_iter().find(|w| w.output == output)
+    }
+}
 
 /// abstract 'sending back workspace change events'
-struct EventSender {
+pub struct EventSender {
     tx: Sender<WorkspaceVisible>,
     waker: Arc<Waker>,
 }
 
 impl EventSender {
-    fn new(tx: Sender<WorkspaceVisible>, waker: Arc<Waker>) -> Self {
+    pub fn new(tx: Sender<WorkspaceVisible>, waker: Arc<Waker>) -> Self {
         EventSender { tx, waker }
     }
 
@@ -136,6 +115,26 @@ trait CompositorInterface: Send + Sync {
     fn subscribe_event_loop(self, event_sender: EventSender);
 }
 
+#[derive(Debug)]
+pub struct WorkspaceVisible {
+    pub output: String,
+    pub workspace_name: String,
+    pub workspace_number: i32,
+}
+
+fn make_model_serial(make: &str, model: &str, serial: &str) -> String {
+    [make, model, serial].into_iter()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<&str>>()
+        .join(" ")
+}
+
+fn debug_selecting(compositor: &str, reason: &str) {
+    debug!("Selecting compositor {compositor} based on {reason}");
+}
+
+/*
 pub struct ConnectionTask {
     tx: Sender<WorkspaceVisible>,
     waker: Arc<Waker>,
@@ -265,54 +264,4 @@ impl ConnectionTask {
             .unwrap_or_default()
     }
 }
-
-#[derive(Debug)]
-pub struct WorkspaceVisible {
-    pub output: String,
-    pub workspace_name: String,
-    pub workspace_number: i32,
-}
-
-#[derive(Deserialize)]
-struct NiriVersionJson {
-    compositor: String,
-}
-
-// Example:
-// $ niri msg --json version
-// {"cli":"25.02 (unknown commit)","compositor":"25.02 (unknown commit)"}
-fn get_niri_version() -> anyhow::Result<u64> {
-    let out = Command::new("niri")
-        .args(["msg", "--json", "version"])
-        .output().context("Command niri msg version failed")?;
-    if !out.status.success() {
-        bail!("Command niri msg version exited with {}: {}",
-            out.status, String::from_utf8_lossy(&out.stderr));
-    }
-    let version_json: NiriVersionJson = serde_json::from_slice(&out.stdout)
-        .context("Failed to deserialize niri msg version json")?;
-    debug!("Niri version: {}", version_json.compositor);
-    let version = parse_niri_version(&version_json.compositor)
-        .context("Failed to parse niri version")?;
-    Ok(version)
-}
-
-fn parse_niri_version(version_str: &str) -> Option<u64> {
-    // Example: "25.02 (unknown commit)"
-    let mut iter = version_str.split(|c: char| !c.is_ascii_digit());
-    let major = iter.next()?.parse::<u32>().ok()?;
-    let minor = iter.next()?.parse::<u32>().ok()?;
-    Some(niri_ver(major, minor))
-}
-
-fn niri_ver(major: u32, minor: u32) -> u64 {
-    ((major as u64) << 32) | (minor as u64)
-}
-
-fn make_model_serial(make: &str, model: &str, serial: &str) -> String {
-    [make, model, serial].into_iter()
-        .map(|s| s.trim())
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<&str>>()
-        .join(" ")
-}
+*/
