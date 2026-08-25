@@ -1,10 +1,5 @@
 use super::*;
 
-use std::{
-    borrow::Cow,
-    os::fd::OwnedFd,
-};
-
 use rustix::{
     buffer::spare_capacity,
     io::{Errno, read},
@@ -34,53 +29,64 @@ impl Sway {
         }
     }
 
-    fn connect(&self) -> SwayConnectionTask {
-        SwayConnectionTask::connect(&self.swaysock)
+    fn connect(&self) -> Connection {
+        Connection::connect(&self.swaysock)
     }
 }
 
 impl CompositorCtx for Sway {
     fn list_outputs(&mut self) {
-        let outputs = self.connect().outputs();
+        let mut conn = self.connect();
+        let outputs = conn.outputs();
         let mut stdout = stdout().lock();
-        for output in outputs {
+        outputs.into_iter().for_each(|output| {
             writeln!(
                 stdout,
                 "{}: '{}'",
                 output.name,
-                output.make_model_serial,
+                make_model_serial(
+                    output.make.as_ref(),
+                    output.model.as_ref(),
+                    output.serial.as_ref(),
+                ),
             ).unwrap();
-        }
+        });
+    }
+
+    fn visible_workspace(&mut self, output: &str) -> Option<WorkspaceVisible> {
+        self.connect().visible_workspace(output)
     }
 
     fn visible_workspaces(&mut self) -> Vec<WorkspaceVisible> {
-        self.connect().request_visible_workspaces()
+        self.connect().visible_workspaces()
     }
 
     fn make_model_serial(&mut self, output: &str) -> String {
-        self.connect().outputs()
-            .find(|output_info| output_info.name == output).unwrap()
-            .make_model_serial
+        let mut conn = self.connect();
+        let output = conn.outputs().into_iter()
+            .find(|o| o.name == output).unwrap();
+        make_model_serial(
+            output.make.as_ref(),
+            output.model.as_ref(),
+            output.serial.as_ref(),
+        )
     }
 
     fn subscribe(&mut self, event_sender: EventSender) {
         assert!(self.subscribe_task.is_none());
-        let conn = self.connect();
-        let join_handle = thread::Builder::new()
-            .name(String::from("sway-connection"))
-            .spawn(|| conn.subscribe_event_loop(event_sender)).unwrap();
+        let join_handle = self.connect().spawn_subscribe(event_sender);
         self.subscribe_task = Some(join_handle);
     }
 }
 
-pub struct SwayConnectionTask {
+struct Connection {
     socket: OwnedFd,
     in_buf: Vec<u8>,
     parsed_len: usize,
     out_buf: Vec<u8>,
 }
 
-impl SwayConnectionTask {
+impl Connection {
     fn connect(swaysock: &Path) -> Self {
         let socket = socket_with(
             AddressFamily::UNIX,
@@ -167,31 +173,26 @@ impl SwayConnectionTask {
         }
     }
 
-    fn outputs(&mut self) -> impl Iterator<Item = OutputInfo> + use<> {
+    fn outputs(&mut self) -> Vec<Output<'_>> {
         self.send(GET_OUTPUTS, b"");
         let (reply_type, payload) = self.recv();
         assert_eq!(reply_type, GET_OUTPUTS);
-        let outputs: Vec<Output> = serde_json::from_slice(payload)
-            .unwrap();
-        outputs.into_iter()
-            .map(|output| OutputInfo {
-                name: output.name.into_owned(),
-                make_model_serial: make_model_serial(
-                    output.make.as_ref(),
-                    output.model.as_ref(),
-                    output.serial.as_ref(),
-                ),
+        serde_json::from_slice(payload).unwrap()
+    }
+
+    fn visible_workspace(&mut self, output: &str) -> Option<WorkspaceVisible> {
+        let workspaces = self.workspaces();
+        workspaces.into_iter()
+            .find(|w| w.visible && w.output == output)
+            .map(|workspace| WorkspaceVisible {
+                output: workspace.output.into_owned(),
+                workspace_name: workspace.name.into_owned(),
+                workspace_number: workspace.num,
             })
     }
-}
 
-impl CompositorInterface for SwayConnectionTask {
-    fn request_visible_workspaces(&mut self) -> Vec<WorkspaceVisible> {
-        self.send(GET_WORKSPACES, b"");
-        let (reply_type, payload) = self.recv();
-        assert_eq!(reply_type, GET_WORKSPACES);
-        let workspaces: Vec<Workspace> = serde_json::from_slice(payload)
-            .unwrap();
+    fn visible_workspaces(&mut self) -> Vec<WorkspaceVisible> {
+        let workspaces = self.workspaces();
         workspaces.into_iter()
             .filter(|w| w.visible)
             .map(|workspace| WorkspaceVisible {
@@ -202,48 +203,46 @@ impl CompositorInterface for SwayConnectionTask {
             .collect()
     }
 
-    fn request_outputs(&mut self) -> Vec<OutputInfo> {
-        self.send(GET_OUTPUTS, b"");
+    fn workspaces(&mut self) -> Vec<Workspace<'_>> {
+        self.send(GET_WORKSPACES, b"");
         let (reply_type, payload) = self.recv();
-        assert_eq!(reply_type, GET_OUTPUTS);
-        let outputs: Vec<Output> = serde_json::from_slice(payload)
-            .unwrap();
-        outputs.into_iter()
-            .map(|output| OutputInfo {
-                name: output.name.into_owned(),
-                make_model_serial: make_model_serial(
-                    output.make.as_ref(),
-                    output.model.as_ref(),
-                    output.serial.as_ref(),
-                ),
-            })
-            .collect()
+        assert_eq!(reply_type, GET_WORKSPACES);
+        serde_json::from_slice(payload).unwrap()
     }
 
-    fn subscribe_event_loop(mut self, event_sender: EventSender) {
+    fn spawn_subscribe(
+        mut self,
+        event_sender: EventSender,
+    ) -> JoinHandle<()> {
         self.send(SUBSCRIBE, b"[\"workspace\"]");
         let (reply_type, payload) = self.recv();
         assert_eq!(reply_type, SUBSCRIBE);
         let subscribe: Subscribe = serde_json::from_slice(payload)
             .unwrap();
         assert!(subscribe.success);
-        loop {
-            let (reply_type, payload) = self.recv();
-            if reply_type != EVENT_WORKSPACE {
-                continue
-            }
-            let workspace_event: WorkspaceEvent =
-                serde_json::from_slice(payload).unwrap();
-            if workspace_event.change != "focus" {
-                continue
-            }
-            let current_workspace = workspace_event.current.unwrap();
-            event_sender.send(WorkspaceVisible {
-                output: current_workspace.output.unwrap().into_owned(),
-                workspace_name: current_workspace.name.unwrap().into_owned(),
-                workspace_number: current_workspace.num.unwrap(),
-            });
+        thread::Builder::new()
+            .name(String::from("sway-connection"))
+            .spawn(move || loop {
+                self.subscribe_loop_round(&event_sender);
+            }).unwrap()
+    }
+
+    fn subscribe_loop_round(&mut self, event_sender: &EventSender) {
+        let (reply_type, payload) = self.recv();
+        if reply_type != EVENT_WORKSPACE {
+            return
         }
+        let workspace_event: WorkspaceEvent =
+            serde_json::from_slice(payload).unwrap();
+        if workspace_event.change != "focus" {
+            return
+        }
+        let current_workspace = workspace_event.current.unwrap();
+        event_sender.send(WorkspaceVisible {
+            output: current_workspace.output.unwrap().into_owned(),
+            workspace_name: current_workspace.name.unwrap().into_owned(),
+            workspace_number: current_workspace.num.unwrap(),
+        });
     }
 }
 

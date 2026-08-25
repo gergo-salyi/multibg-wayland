@@ -3,9 +3,13 @@ mod niri;
 mod sway;
 
 use std::{
+    borrow::Cow,
     env,
     io::{self, stdout, Write},
-    os::unix::ffi::OsStrExt,
+    os::{
+        fd::OwnedFd,
+        unix::ffi::OsStrExt,
+    },
     path::{Path, PathBuf},
     sync::{mpsc::Sender, Arc},
     thread::{self, JoinHandle},
@@ -133,135 +137,3 @@ fn make_model_serial(make: &str, model: &str, serial: &str) -> String {
 fn debug_selecting(compositor: &str, reason: &str) {
     debug!("Selecting compositor {compositor} based on {reason}");
 }
-
-/*
-pub struct ConnectionTask {
-    tx: Sender<WorkspaceVisible>,
-    waker: Arc<Waker>,
-    interface: Box<dyn CompositorInterface>,
-}
-
-impl ConnectionTask {
-    pub fn new(
-        composer: Compositor,
-        tx: Sender<WorkspaceVisible>,
-        waker: Arc<Waker>,
-    ) -> Self {
-        let interface: Box<dyn CompositorInterface> = match composer {
-            Compositor::Sway => Box::new(sway::SwayConnectionTask::new()),
-            Compositor::Hyprland => Box::new(
-                hyprland::HyprlandConnectionTask::new()
-            ),
-            Compositor::Niri => match get_niri_version() {
-                Ok(niri_verison) => {
-                    if niri_verison >= niri_ver(25, 11) {
-                        Box::new(niri2604::NiriConnectionTask::new())
-                    } else if niri_verison >= niri_ver(25, 8) {
-                        Box::new(niri2508::NiriConnectionTask::new())
-                    } else if niri_verison >= niri_ver(25, 5) {
-                        Box::new(niri2505::NiriConnectionTask::new())
-                    } else {
-                        Box::new(niri2502::NiriConnectionTask::new())
-                    }
-                },
-                Err(e) => {
-                    warn!("Failed to get niri version: {e:#}");
-                    Box::new(niri2604::NiriConnectionTask::new())
-                }
-            }
-        };
-
-        ConnectionTask {
-            tx,
-            waker,
-            interface,
-        }
-    }
-
-    pub fn spawn_subscribe_event_loop(
-        composer: Compositor,
-        tx: Sender<WorkspaceVisible>,
-        waker: Arc<Waker>,
-    ) {
-        let event_sender = EventSender::new(tx, waker);
-        thread::Builder::new()
-            .name("compositor".to_string())
-            .spawn(move || match composer {
-                Compositor::Sway => {
-                    let composer_interface = sway::SwayConnectionTask::new();
-                    composer_interface.subscribe_event_loop(event_sender);
-                }
-                Compositor::Hyprland => {
-                    let composer_interface =
-                        hyprland::HyprlandConnectionTask::new();
-                    composer_interface.subscribe_event_loop(event_sender);
-                }
-                Compositor::Niri => match get_niri_version() {
-                    Ok(niri_verison) => {
-                        if niri_verison >= niri_ver(25, 11) {
-                            niri2604::NiriConnectionTask::new()
-                                .subscribe_event_loop(event_sender)
-                        } else if niri_verison >= niri_ver(25, 8) {
-                            niri2508::NiriConnectionTask::new()
-                                .subscribe_event_loop(event_sender)
-                        } else if niri_verison >= niri_ver(25, 5) {
-                            niri2505::NiriConnectionTask::new()
-                                .subscribe_event_loop(event_sender)
-                        } else {
-                            niri2502::NiriConnectionTask::new()
-                                .subscribe_event_loop(event_sender)
-                        }
-                    },
-                    Err(e) => {
-                        warn!("Failed to get niri version: {e:#}");
-                        niri2604::NiriConnectionTask::new()
-                            .subscribe_event_loop(event_sender)
-                    }
-                }
-            })
-            .unwrap();
-    }
-
-    pub fn request_visible_workspace(&mut self, output: &str) {
-        if let Some(workspace) = self
-            .interface
-            .request_visible_workspaces()
-            .into_iter()
-            .find(|w| w.output == output)
-        {
-            self.tx
-                .send(WorkspaceVisible {
-                    output: workspace.output,
-                    workspace_name: workspace.workspace_name,
-                    workspace_number: workspace.workspace_number,
-                })
-                .unwrap();
-
-            self.waker.wake();
-        }
-    }
-
-    pub fn request_visible_workspaces(&mut self) {
-        for workspace in self.interface
-            .request_visible_workspaces().into_iter()
-        {
-            self.tx
-                .send(WorkspaceVisible {
-                    output: workspace.output,
-                    workspace_name: workspace.workspace_name,
-                    workspace_number: workspace.workspace_number
-                })
-                .unwrap();
-
-            self.waker.wake();
-        }
-    }
-
-    pub fn request_make_model_serial(&mut self, output_name: &str) -> String {
-        self.interface.request_outputs().into_iter()
-            .find(|output_info| output_info.name == output_name)
-            .map(|output_info| output_info.make_model_serial)
-            .unwrap_or_default()
-    }
-}
-*/
