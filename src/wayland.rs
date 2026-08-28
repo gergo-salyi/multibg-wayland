@@ -155,6 +155,23 @@ impl BackgroundLayer {
         debug!("Setting wallpaper on output {} for workspace: {}",
             self.output_name, workspace_name);
     }
+
+    fn draw_queued(&mut self) {
+        // This is only called from DMA-BUF created
+        // so the layer is configured
+        // and the queued wallpaper is already checked to exist and ready
+        assert!(self.configured);
+        let wallpaper = self.queued_wallpaper.take().unwrap()
+            .upgrade().unwrap();
+        let wallpaper_borrow = wallpaper.borrow();
+        let wl_buffer = wallpaper_borrow.wl_buffer.as_ref().unwrap();
+        self.layer.attach(Some(wl_buffer), 0, 0);
+        self.layer.wl_surface().damage_buffer(0, 0, self.width, self.height);
+        self.layer.commit();
+        drop(wallpaper_borrow);
+        self.current_wallpaper = Some(wallpaper);
+        debug!("Setting queued wallpaper on output {}", self.output_name);
+    }
 }
 
 struct WorkspaceBackground {
@@ -308,7 +325,8 @@ impl DmabufHandler for State {
         params: &ZwpLinuxBufferParamsV1,
         buffer: WlBuffer,
     ) {
-        for bg_layer in self.background_layers.iter_mut() {
+        let mut wallpaper_ptr = None;
+        'outer: for bg_layer in self.background_layers.iter_mut() {
             for workspace_bg in bg_layer.workspace_backgrounds.iter_mut() {
                 let wallpaper = &workspace_bg.wallpaper;
                 let mut wallpaper_borrow = wallpaper.borrow_mut();
@@ -316,20 +334,23 @@ impl DmabufHandler for State {
                     wallpaper_borrow.wl_buffer = Some(buffer);
                     debug!("Created Linux DMA-BUF buffer for wallpaper \
                         file {:?}", wallpaper_borrow.canon_path);
-                    drop(wallpaper_borrow);
-                    if let Some(queued_weak) = &bg_layer.queued_wallpaper
-                        && let Some(queued) = queued_weak.upgrade()
-                        && Rc::ptr_eq(&queued, wallpaper)
-                    {
-                        let name = workspace_bg.workspace_name.clone();
-                        let number = workspace_bg.workspace_number;
-                        bg_layer.draw_workspace_bg(&name, number);
-                    }
-                    return
+                    wallpaper_ptr = Some(wallpaper.as_ptr());
+                    break 'outer
                 }
             }
         }
-        error!("Received unexpected created Linux DMA-BUF buffer");
+        if let Some(wallpaper_ptr) = wallpaper_ptr {
+            for bg_layer in self.background_layers.iter_mut() {
+                if let Some(queued_weak) = &bg_layer.queued_wallpaper
+                    && let Some(queued) = queued_weak.upgrade()
+                    && queued.as_ptr() == wallpaper_ptr
+                {
+                    bg_layer.draw_queued();
+                }
+            }
+        } else {
+            error!("Received unexpected created Linux DMA-BUF buffer");
+        }
     }
 
     fn failed(
