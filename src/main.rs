@@ -9,6 +9,7 @@ mod file_io;
 mod gpu;
 mod guard;
 mod image;
+mod memchr;
 mod poll;
 mod signal;
 mod wayland;

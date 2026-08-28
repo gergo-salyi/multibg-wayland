@@ -1,14 +1,5 @@
 use super::*;
 
-use rustix::{
-    buffer::spare_capacity,
-    io::{Errno, read},
-    net::{
-        AddressFamily, connect, send, SendFlags,
-        socket_with, SocketAddrUnix, SocketFlags, SocketType,
-    },
-};
-
 const MAGIC: &[u8; 6] = b"i3-ipc";
 const GET_WORKSPACES: u32 = 1;
 const SUBSCRIBE: u32 = 2;
@@ -88,16 +79,7 @@ struct Connection {
 
 impl Connection {
     fn connect(swaysock: &Path) -> Self {
-        let socket = socket_with(
-            AddressFamily::UNIX,
-            SocketType::STREAM,
-            SocketFlags::CLOEXEC,
-            None,
-        ).unwrap();
-        connect(
-            &socket,
-            &SocketAddrUnix::new(swaysock).unwrap(),
-        ).unwrap();
+        let socket = connect_unix(swaysock).unwrap();
         Self {
             socket,
             in_buf: Vec::with_capacity(14),

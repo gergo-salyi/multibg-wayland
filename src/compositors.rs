@@ -5,6 +5,7 @@ mod sway;
 use std::{
     borrow::Cow,
     env,
+    ffi::{OsStr, OsString},
     io::{self, stdout, Write},
     os::{
         fd::OwnedFd,
@@ -16,10 +17,21 @@ use std::{
 };
 
 use anyhow::{bail, Context};
-use serde::Deserialize;
 use log::{debug, warn};
+use rustix::{
+    buffer::spare_capacity,
+    io::{Errno, read},
+    net::{
+        AddressFamily, connect, send, SendFlags,
+        socket_with, SocketAddrUnix, SocketFlags, SocketType,
+    },
+};
+use serde::Deserialize;
 
-use crate::poll::Waker;
+use crate::{
+    memchr::{memchr, memmem},
+    poll::Waker,
+};
 
 #[derive(Clone, Copy, Debug)]
 pub enum Compositor {
@@ -136,4 +148,18 @@ fn make_model_serial(make: &str, model: &str, serial: &str) -> String {
 
 fn debug_selecting(compositor: &str, reason: &str) {
     debug!("Selecting compositor {compositor} based on {reason}");
+}
+
+fn connect_unix(path: &Path) -> Option<OwnedFd> {
+    let socket = socket_with(
+        AddressFamily::UNIX,
+        SocketType::STREAM,
+        SocketFlags::CLOEXEC,
+        None,
+    ).ok()?;
+    connect(
+        &socket,
+        &SocketAddrUnix::new(path).ok()?,
+    ).ok()?;
+    Some(socket)
 }
