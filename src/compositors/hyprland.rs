@@ -290,11 +290,15 @@ impl EventConn {
 
 #[derive(Deserialize)]
 struct Monitor<'a> {
+    #[serde(borrow)]
     name: Cow<'a, str>,
+    #[serde(borrow)]
     make: Cow<'a, str>,
+    #[serde(borrow)]
     model: Cow<'a, str>,
+    #[serde(borrow)]
     serial: Cow<'a, str>,
-    #[serde(rename = "activeWorkspace")]
+    #[serde(borrow, rename = "activeWorkspace")]
     active_workspace: ActiveWorkspace<'a>,
     focused: bool,
 }
@@ -312,6 +316,7 @@ impl Monitor<'_> {
 #[derive(Deserialize)]
 struct ActiveWorkspace<'a> {
     id: Option<i32>,
+    #[serde(borrow)]
     name: Cow<'a, str>,
 }
 

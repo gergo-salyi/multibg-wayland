@@ -231,16 +231,22 @@ impl Connection {
 #[derive(Deserialize)]
 struct Workspace<'a> {
     num: i32,
+    #[serde(borrow)]
     name: Cow<'a, str>,
     visible: bool,
+    #[serde(borrow)]
     output: Cow<'a, str>,
 }
 
 #[derive(Deserialize)]
 struct Output<'a> {
+    #[serde(borrow)]
     name: Cow<'a, str>,
+    #[serde(borrow)]
     make: Cow<'a, str>,
+    #[serde(borrow)]
     model: Cow<'a, str>,
+    #[serde(borrow)]
     serial: Cow<'a, str>,
 }
 
@@ -251,13 +257,17 @@ struct Subscribe {
 
 #[derive(Deserialize)]
 struct WorkspaceEvent<'a> {
+    #[serde(borrow)]
     change: Cow<'a, str>,
+    #[serde(borrow)]
     current: Option<Node<'a>>,
 }
 
 #[derive(Deserialize)]
 struct Node<'a> {
     num: Option<i32>,
+    #[serde(borrow)]
     name: Option<Cow<'a, str>>,
+    #[serde(borrow)]
     output: Option<Cow<'a, str>>,
 }
