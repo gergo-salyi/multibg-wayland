@@ -6,7 +6,7 @@ use std::{
     borrow::Cow,
     env,
     ffi::{OsStr, OsString},
-    io::{self, stdout, Write},
+    io::{stdout, Write},
     os::{
         fd::OwnedFd,
         unix::ffi::OsStrExt,
@@ -16,7 +16,6 @@ use std::{
     thread::{self, JoinHandle},
 };
 
-use anyhow::{bail, Context};
 use log::{debug, warn};
 use rustix::{
     buffer::spare_capacity,
@@ -26,7 +25,7 @@ use rustix::{
         socket_with, SocketAddrUnix, SocketFlags, SocketType,
     },
 };
-use serde::Deserialize;
+use serde::{Deserialize, de::IgnoredAny};
 
 use crate::{
     memchr::{memchr, memmem},
@@ -38,11 +37,6 @@ pub enum Compositor {
     Hyprland,
     Niri,
     Sway,
-}
-
-pub struct OutputInfo {
-    pub name: String,
-    pub make_model_serial: String,
 }
 
 impl Compositor {
@@ -92,7 +86,7 @@ impl Compositor {
         match self {
             Compositor::Sway => Box::new(sway::Sway::new()),
             Compositor::Hyprland => Box::new(hyprland::Hyprland::new()),
-            Compositor::Niri => niri::context(),
+            Compositor::Niri => Box::new(niri::Niri::new()),
         }
     }
 }
@@ -123,12 +117,6 @@ impl EventSender {
         self.tx.send(workspace).unwrap();
         self.waker.wake();
     }
-}
-
-trait CompositorInterface: Send + Sync {
-    fn request_visible_workspaces(&mut self) -> Vec<WorkspaceVisible>;
-    fn request_outputs(&mut self) -> Vec<OutputInfo>;
-    fn subscribe_event_loop(self, event_sender: EventSender);
 }
 
 #[derive(Debug)]

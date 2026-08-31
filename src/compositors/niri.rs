@@ -1,66 +1,311 @@
-mod niri2502;
-mod niri2505;
-mod niri2508;
-mod niri2604;
+// https://niri-wm.github.io/niri/IPC.html#programmatic-access
 
 use super::*;
 
-use std::{
-    process::Command,
-};
+use std::collections::HashMap;
 
-pub fn context() -> Box<dyn CompositorCtx> {
-    match get_niri_version() {
-        Ok(niri_verison) => {
-            if niri_verison >= niri_ver(25, 11) {
-                Box::new(niri2604::Niri::new())
-            } else if niri_verison >= niri_ver(25, 8) {
-                Box::new(niri2508::Niri::new())
-            } else if niri_verison >= niri_ver(25, 5) {
-                Box::new(niri2505::Niri::new())
-            } else {
-                Box::new(niri2502::Niri::new())
+pub struct Niri {
+    niri_socket: Box<Path>,
+    subscribe_task: Option<JoinHandle<()>>,
+}
+
+impl Niri {
+    pub fn new() -> Self {
+        let niri_socket = env::var_os("NIRI_SOCKET").unwrap();
+        Self {
+            niri_socket: PathBuf::from(niri_socket).into_boxed_path(),
+            subscribe_task: None,
+        }
+    }
+
+    fn connect(&self) -> Connection {
+        Connection::connect(&self.niri_socket)
+    }
+}
+
+impl CompositorCtx for Niri {
+    fn list_outputs(&mut self) {
+        let mut conn = self.connect();
+        let outputs = conn.outputs();
+        let mut stdout = stdout().lock();
+        outputs.into_iter().for_each(|(name, output)| {
+            writeln!(stdout, "{}: '{}'",
+                name, output.make_model_serial()).unwrap();
+        });
+    }
+
+    fn visible_workspace(&mut self, output: &str) -> Option<WorkspaceVisible> {
+        let mut conn = self.connect();
+        let workspaces = conn.workspaces();
+        workspaces.into_iter()
+            .find(|w| w.is_active && w.output.as_ref().unwrap() == output)
+            .map(Workspace::into_visible_workspace)
+    }
+
+    fn visible_workspaces(&mut self) -> Vec<WorkspaceVisible> {
+        let mut conn = self.connect();
+        let workspaces = conn.workspaces();
+        workspaces.into_iter()
+            .filter(|w| w.is_active)
+            .map(Workspace::into_visible_workspace)
+            .collect()
+    }
+
+    fn make_model_serial(&mut self, output: &str) -> String {
+        let mut conn = self.connect();
+        let outputs = conn.outputs();
+        outputs.into_iter()
+            .find(|(name, _)| name == output).unwrap()
+            .1
+            .make_model_serial()
+    }
+
+    fn subscribe(&mut self, event_sender: EventSender) {
+        assert!(self.subscribe_task.is_none());
+        let join_handle = Subscriber::new(self, event_sender).spawn();
+        self.subscribe_task = Some(join_handle);
+    }
+}
+
+const REQUEST_OUTPUTS: &[u8] = b"\"Outputs\"\n";
+const REQUEST_WORKSPACES: &[u8] = b"\"Workspaces\"\n";
+const REQUEST_EVENT_STREAM: &[u8] = b"\"EventStream\"\n";
+
+struct Connection {
+    socket: OwnedFd,
+    buf: Vec<u8>,
+    parsed_len: usize,
+}
+
+impl Connection {
+    fn connect(niri_socket: &Path) -> Self {
+        let socket = connect_unix(niri_socket).unwrap();
+        Self {
+            socket,
+            buf: Vec::with_capacity(240),
+            parsed_len: 0,
+        }
+    }
+
+    fn outputs(&mut self) -> HashMap<Cow<'_, str>, Output<'_>> {
+        self.send(REQUEST_OUTPUTS);
+        if let Response::Outputs(outputs) = self.recv() {
+            outputs
+        } else {
+            panic!()
+        }
+    }
+
+    fn workspaces(&mut self) -> Vec<Workspace<'_>> {
+        self.send(REQUEST_WORKSPACES);
+        if let Response::Workspaces(workspaces) = self.recv() {
+            workspaces
+        } else {
+            panic!()
+        }
+    }
+
+    fn event_stream(&mut self) {
+        self.send(REQUEST_EVENT_STREAM);
+        let Response::Handled = self.recv() else {
+            panic!()
+        };
+    }
+
+    fn send(&mut self, mut request: &[u8]) {
+        while !request.is_empty() {
+            match send(&self.socket, request, SendFlags::NOSIGNAL) {
+                Ok(0) => panic!(),
+                Ok(count) => request = &request[count..],
+                Err(Errno::INTR) => (),
+                Err(Errno::PIPE) => panic!("niri IPC socket disconnected"),
+                Err(e) => panic!("Failed to send to niri IPC socket: {e}"),
             }
-        },
-        Err(e) => {
-            warn!("Failed to get niri version: {e:#}");
-            Box::new(niri2604::Niri::new())
+        }
+    }
+
+    fn recv(&mut self) -> Response<'_> {
+        let bytes = self.recv_bytes();
+        let reply: Result<Response, String> =
+            serde_json::from_slice(bytes).unwrap();
+        reply.unwrap()
+    }
+
+    fn recv_bytes(&mut self) -> &[u8] {
+        loop {
+            if let Some(bytes) = self.take_response() {
+                return bytes
+            }
+            self.prepare_buf();
+            match read(&self.socket, spare_capacity(&mut self.buf)) {
+                Ok(0) => panic!("niri IPC socket disconnected"),
+                Ok(_) => (),
+                Err(Errno::INTR) => (),
+                Err(e) => panic!("Failed to read niri IPC socket: {e}"),
+            }
+        }
+    }
+
+    fn take_response(&mut self) -> Option<&[u8]> {
+        let unparsed = &self.buf[self.parsed_len..];
+        let idx = memchr(unparsed, b'\n')?;
+        let response = &unparsed[..idx];
+        self.parsed_len += idx + 1;
+        Some(response)
+    }
+
+    fn prepare_buf(&mut self) {
+        let unparsed_len = self.buf.len().strict_sub(self.parsed_len);
+        if self.parsed_len != 0 {
+            if unparsed_len == 0 {
+                self.buf.clear();
+            } else {
+                self.buf.copy_within(self.parsed_len.., 0);
+                self.buf.truncate(unparsed_len);
+            }
+            self.parsed_len = 0;
+        } else if self.buf.len() == self.buf.capacity() {
+            self.buf.reserve(self.buf.capacity() / 2);
+        }
+    }
+}
+
+struct Subscriber {
+    conn: Connection,
+    event_sender: EventSender,
+    workspaces: Vec<WorkspaceOwn>,
+}
+
+impl Subscriber {
+    fn new(niri: &Niri, event_sender: EventSender) -> Self {
+        let mut conn = niri.connect();
+        conn.event_stream();
+        let mut conn2 = niri.connect();
+        let workspaces = conn2.workspaces().into_iter()
+            .filter_map(WorkspaceOwn::from_workspace)
+            .collect();
+        Self { conn, event_sender, workspaces }
+    }
+
+    fn spawn(mut self) -> JoinHandle<()> {
+        thread::Builder::new()
+            .name(String::from("niri-connection"))
+            .spawn(move || loop {
+                self.cycle();
+            }).unwrap()
+    }
+
+    fn cycle(&mut self) {
+        let bytes = self.conn.recv_bytes();
+        let event: Option<Event> = serde_json::from_slice(bytes).unwrap();
+        match event.unwrap() {
+            Event::WorkspacesChanged { workspaces } => {
+                self.workspaces.clear();
+                self.workspaces.extend(
+                    workspaces.into_iter()
+                        .filter_map(WorkspaceOwn::from_workspace)
+                );
+            },
+            Event::WorkspaceActivated { id } => {
+                self.event_sender.send(
+                    self.workspaces.iter().find(|w| w.id == id).unwrap()
+                        .to_visible_workspace()
+                );
+            },
+            Event::Other(_) => (),
         }
     }
 }
 
 #[derive(Deserialize)]
-struct NiriVersionJson {
-    compositor: String,
+enum Response<'a> {
+    Handled,
+    #[serde(borrow)]
+    Outputs(HashMap<Cow<'a, str>, Output<'a>>),
+    #[serde(borrow)]
+    Workspaces(Vec<Workspace<'a>>),
 }
 
-// Example:
-// $ niri msg --json version
-// {"cli":"25.02 (unknown commit)","compositor":"25.02 (unknown commit)"}
-fn get_niri_version() -> anyhow::Result<u64> {
-    let out = Command::new("niri")
-        .args(["msg", "--json", "version"])
-        .output().context("Command niri msg version failed")?;
-    if !out.status.success() {
-        bail!("Command niri msg version exited with {}: {}",
-            out.status, String::from_utf8_lossy(&out.stderr));
+#[derive(Deserialize)]
+struct Output<'a> {
+    #[serde(borrow)]
+    make: Cow<'a, str>,
+    #[serde(borrow)]
+    model: Cow<'a, str>,
+    #[serde(borrow)]
+    serial: Option<Cow<'a, str>>,
+}
+
+impl Output<'_> {
+    fn make_model_serial(&self) -> String {
+        make_model_serial(
+            self.make.as_ref(),
+            self.model.as_ref(),
+            self.serial.as_deref().unwrap_or(""),
+        )
     }
-    let version_json: NiriVersionJson = serde_json::from_slice(&out.stdout)
-        .context("Failed to deserialize niri msg version json")?;
-    debug!("Niri version: {}", version_json.compositor);
-    let version = parse_niri_version(&version_json.compositor)
-        .context("Failed to parse niri version")?;
-    Ok(version)
 }
 
-fn parse_niri_version(version_str: &str) -> Option<u64> {
-    // Example: "25.02 (unknown commit)"
-    let mut iter = version_str.split(|c: char| !c.is_ascii_digit());
-    let major = iter.next()?.parse::<u32>().ok()?;
-    let minor = iter.next()?.parse::<u32>().ok()?;
-    Some(niri_ver(major, minor))
+#[derive(Deserialize)]
+struct Workspace<'a> {
+    id: u64,
+    idx: u8,
+    #[serde(borrow)]
+    name: Option<Cow<'a, str>>,
+    #[serde(borrow)]
+    output: Option<Cow<'a, str>>,
+    is_active: bool,
 }
 
-fn niri_ver(major: u32, minor: u32) -> u64 {
-    ((major as u64) << 32) | (minor as u64)
+impl Workspace<'_> {
+    fn into_visible_workspace(self) -> WorkspaceVisible {
+        WorkspaceVisible {
+            output: self.output.unwrap().into(),
+            workspace_name: self.name
+                .unwrap_or_else(|| format!("{}", self.idx).into())
+                .into_owned(),
+            workspace_number: self.idx.into(),
+        }
+    }
+}
+
+#[derive(Deserialize)]
+enum Event<'a> {
+    WorkspacesChanged {
+        #[serde(borrow)]
+        workspaces: Vec<Workspace<'a>>
+    },
+    WorkspaceActivated { id: u64 },
+    #[serde(untagged)]
+    Other(IgnoredAny),
+}
+
+struct WorkspaceOwn {
+    id: u64,
+    idx: u8,
+    name: Box<str>,
+    output: Box<str>,
+}
+
+impl WorkspaceOwn {
+    fn from_workspace(workspace: Workspace) -> Option<Self> {
+        let output = Box::from(workspace.output?);
+        let name = workspace.name
+            .map(Box::from)
+            .unwrap_or_else(|| format!("{}", workspace.idx).into_boxed_str());
+        Some(WorkspaceOwn {
+            id: workspace.id,
+            idx: workspace.idx,
+            name,
+            output,
+        })
+    }
+
+    fn to_visible_workspace(&self) -> WorkspaceVisible {
+        WorkspaceVisible {
+            output: String::from(self.output.as_ref()),
+            workspace_name: String::from(self.name.as_ref()),
+            workspace_number: self.idx.into(),
+        }
+    }
 }
