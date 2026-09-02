@@ -9,13 +9,14 @@ mod file_io;
 mod gpu;
 mod guard;
 mod image;
+mod log;
 mod memchr;
 mod poll;
 mod signal;
 mod wayland;
 
 use std::{
-    env::{self, current_dir},
+    env::current_dir,
     fmt,
     io,
     os::fd::AsFd,
@@ -27,7 +28,6 @@ use std::{
     },
 };
 
-use log::{debug, error, info, warn};
 use rustix::{
     event::{poll, PollFd, PollFlags},
     io::retry_on_intr,
@@ -55,6 +55,7 @@ use crate::{
     cpu::CpuFeatures,
     gpu::Gpu,
     image::{ColorTransform, Levels},
+    log::{set_log_level, debug, error, info, warn},
     poll::{Poll, Waker},
     signal::SignalPipe,
     wayland::BackgroundLayer,
@@ -78,7 +79,6 @@ struct State {
     color_transform: Option<ColorTransform>,
     dmabuf_state: DmabufState,
     gpu: Option<Gpu>,
-    show_serials: bool,
 }
 
 impl State {
@@ -104,25 +104,12 @@ fn main() -> ExitCode {
 }
 
 fn run() -> Result<(), ()> {
-    let log_env = env_logger::Env::default()
-        .default_filter_or(
-            #[cfg(debug_assertions)]
-            "info,multibg_wayland=trace",
-            #[cfg(not(debug_assertions))]
-            "info",
-        );
-    env_logger::Builder::from_env(log_env)
-        .format_timestamp(None)
-        .init();
-
-    let show_serials = env::var_os("MULTIBG_DEBUG_SHOW_SERIALS").is_some();
-
     let cli = Cli::parse()?;
     if cli.done() {
         return Ok(())
     }
-
-    eprintln!("{PKG_NAME} {PKG_VERSION}");
+    unsafe { set_log_level(cli.log_level) }
+    info!("{PKG_NAME} {PKG_VERSION}");
 
     let compositor = cli.compositor
         .or_else(Compositor::from_env)
@@ -216,7 +203,6 @@ fn run() -> Result<(), ()> {
         color_transform,
         dmabuf_state,
         gpu,
-        show_serials,
     };
 
     event_queue.roundtrip(&mut state).unwrap();

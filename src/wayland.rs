@@ -6,7 +6,6 @@ use std::{
 };
 
 use anyhow::{bail, Context};
-use log::{debug, error, warn};
 use rustix::fs::{Dev, major, minor};
 use smithay_client_toolkit::{
     delegate_dispatch2, delegate_registry,
@@ -59,6 +58,7 @@ use crate::{
         WallpaperLoader,
         WallpaperFile,
     },
+    log::{debug, error, log_level, trace, warn},
 };
 
 const MAX_FDS_OUT: usize = 28;
@@ -538,10 +538,8 @@ impl OutputHandler for State {
             factor: {}, logical size: {}x{}, transform: {:?}",
             output_name, width, height, integer_scale_factor,
             logical_width, logical_height, info.transform);
-        if self.show_serials {
-            debug!("New output make-model-serial: '{}'",
-                output_make_model_serial);
-        }
+        trace!("New output make-model-serial: '{}'",
+            output_make_model_serial);
 
         let layer = self.layer_shell.create_layer_surface(
             qh,
@@ -940,7 +938,7 @@ fn find_equal_output_wallpaper(
 }
 
 fn print_memory_stats(background_layers: &[BackgroundLayer]) {
-    if log::log_enabled!(log::Level::Debug) {
+    if log_level().debug() {
         let mut wl_shm_count = 0.0f32;
         let mut wl_shm_size = 0.0f32;
         let mut dmabuf_count = 0.0f32;
@@ -1007,13 +1005,8 @@ fn load_wallpapers(
             let output_dir = wallpaper_dir.join(
                 &bg_layer.output_make_model_serial
             );
-            if state.show_serials {
-                debug!("Looking for wallpapers for new output {} in {:?}",
-                    output_name, output_dir);
-            } else {
-                debug!("Looking for wallpapers for new output {} in \
-                    'wallpaper_dir/MAKE MODEL SERIAL'", output_name);
-            }
+            trace!("Looking for wallpapers for new output {} in {:?}",
+                output_name, output_dir);
             if let Ok(files) = output_wallpaper_files(&output_dir) {
                 wallpaper_files = Ok(files);
             }
@@ -1046,7 +1039,7 @@ fn load_wallpapers(
     flush_blocking(connection);
     let mut fds_need_flush = 0usize;
     for wallpaper_file in wallpaper_files {
-        if log::log_enabled!(log::Level::Debug) {
+        if log_level().debug() {
             if wallpaper_file.path == wallpaper_file.canon_path {
                 debug!("Wallpaper file {:?} for workspace {}",
                     wallpaper_file.path, wallpaper_file.workspace);

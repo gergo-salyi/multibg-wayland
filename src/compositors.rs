@@ -16,7 +16,6 @@ use std::{
     thread::{self, JoinHandle},
 };
 
-use log::{debug, warn};
 use rustix::{
     buffer::spare_capacity,
     io::{Errno, read},
@@ -28,6 +27,7 @@ use rustix::{
 use serde::{Deserialize, de::IgnoredAny};
 
 use crate::{
+    log::{debug, warn},
     memchr::{memchr, memmem},
     poll::Waker,
 };

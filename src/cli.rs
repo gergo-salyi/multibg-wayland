@@ -12,6 +12,7 @@ use crate::{
     PKG_NAME, PKG_VERSION,
     compositors::Compositor,
     image::Levels,
+    log::LogLevel,
 };
 
 const HELP_TXT: &str = include_str!("help.txt");
@@ -29,6 +30,7 @@ const LONGS: &[(&[u8], Handler)] = &[
     (b"no-gpu", Flag(Cli::flag_no_gpu)),
     (b"version", Flag(Cli::flag_version)),
     (b"contrast", Opt(Cli::opt_contrast)),
+    (b"log-level", Opt(Cli::opt_log_level)),
     (b"brightness", Opt(Cli::opt_brightness)),
     (b"compositor", Opt(Cli::opt_compositor)),
     (b"pixelformat", Opt(Cli::opt_pixel_format)),
@@ -57,6 +59,7 @@ pub struct Cli {
     pub brightness: i32,
     pub levels: Levels,
     pub compositor: Option<Compositor>,
+    pub log_level: LogLevel,
     flags: CliFlag,
 }
 
@@ -73,6 +76,10 @@ impl Default for Cli {
                 input_max: 1.0,
             },
             compositor: None,
+            log_level: cfg_select! {
+                debug_assertions => LogLevel::Debug,
+                _ => LogLevel::Warn,
+            },
             flags: CliFlag(0),
         }
     }
@@ -276,6 +283,23 @@ impl Cli {
             invalid("level-output-min", bytes, fmt_range("0.0", "1.0"));
             Err(())
         }
+    }
+
+    fn opt_log_level(&mut self, bytes: &[u8]) -> Result<(), ()> {
+        match bytes {
+            b"off" => self.log_level = LogLevel::Off,
+            b"error" => self.log_level = LogLevel::Error,
+            b"warn" => self.log_level = LogLevel::Warn,
+            b"info" => self.log_level = LogLevel::Info,
+            b"debug" => self.log_level = LogLevel::Debug,
+            b"trace" => self.log_level = LogLevel::Trace,
+            other => {
+                invalid("log-level", other, fmt_list(&[
+                    "off", "error", "warn", "info", "debug", "trace"]));
+                return Err(())
+            },
+        };
+        Ok(())
     }
 
     fn opt_pixel_format(&mut self, bytes: &[u8]) -> Result<(), ()> {

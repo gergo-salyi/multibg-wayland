@@ -39,10 +39,12 @@ use ash::{
         QueueFlags,
     }
 };
-use log::{debug, error, warn};
 use rustix::fs::{Dev, major, makedev, minor};
 
-use crate::guard::DropGuard;
+use crate::{
+    guard::DropGuard,
+    log::{debug, error, warn},
+};
 use super::{GpuDevice, GpuInstance, has_extension};
 
 struct PhysdevInfo {

@@ -57,7 +57,7 @@ Then start multibg-wayland:
 
 #### Logging
 
-In case of errors we log to stderr and try to continue. Redirect stderr to a log file if necessary.
+In case of errors and warnings we log to stderr and try to continue. Redirect stderr to a log file if necessary.
 
 #### GPU
 
@@ -124,15 +124,13 @@ Requires `Rust`, get it from your package manager or from the official website: 
 
 Reports on any problems are appreciated, look for an existing or open a new issue at [https://github.com/gergo-salyi/multibg-wayland/issues](https://github.com/gergo-salyi/multibg-wayland/issues)
 
-Please include a verbose log from you terminal by running with `RUST_BACKTRACE=1` and `RUST_LOG=info,multibg_wayland=trace` environment variables set, such as
+Please include a verbose log from you terminal by running with `--log-level=debug`, and `RUST_BACKTRACE=1` environment variable set, such as
 
-    $ export RUST_BACKTRACE=1
-    $ export RUST_LOG=info,multibg_wayland=trace
-    $ multibg-wayland ~/my_wallpapers
+    $ RUST_BACKTRACE=1 multibg-wayland --log-level=debug ~/my_wallpapers
 
 If reporting bugs with the `--gpu` option also consider installing Vulkan validation layers from your distro. It which will be automatically enabled at the log levels defined above.
 
-If diagnosing bugs related to using per-output wallpaper directories named using the output make-model-serial strings, then please note these make-model-serial strings are redacted from the logs by default for privacy reasons. Set the unstable `MULTIBG_DEBUG_SHOW_SERIALS` environment variable to see them.
+If diagnosing bugs related to using per-output wallpaper directories named using the output make-model-serial strings, set `--log-level=trace`. Make-model-serial strings are not included at log-level debug for privacy reasons.
 
 ## Alternatives
 

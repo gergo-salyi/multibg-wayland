@@ -32,8 +32,8 @@ use ash::{
         make_api_version,
     }
 };
-use log::{debug, error, info, warn};
 
+use crate::log::{debug, error, info, log_level, warn};
 use super::{Debug, GpuInstance, has_extension};
 
 const APP_VK_NAME: &CStr = match CStr::from_bytes_with_nul(
@@ -76,7 +76,7 @@ pub unsafe fn instance() -> anyhow::Result<GpuInstance> {
     let mut extension_layers = Vec::new();
     let mut has_debug_utils = false;
     let mut has_debug_report = false;
-    if log::log_enabled!(log::Level::Debug) {
+    if log_level().debug() {
         debug!("Running with log level DEBUG or higher \
             so trying to enable Vulkan validation layers");
         if has_layer(&instance_layer_props, LAYER_VALIDATION) {

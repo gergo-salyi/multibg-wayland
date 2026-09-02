@@ -34,8 +34,9 @@ use ash::{
         Queue,
     }
 };
-use log::{debug, error};
 use rustix::fs::Dev;
+
+use crate::log::{debug, error};
 
 use device::device;
 use instance::instance;

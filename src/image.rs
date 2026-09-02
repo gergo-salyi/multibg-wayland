@@ -16,12 +16,12 @@ use fast_image_resize::{
     pixels::U8x3,
 };
 use image::{ColorType, ImageDecoder, ImageFormat, ImageReader};
-use log::{debug, error, warn};
 use smithay_client_toolkit::reexports::client::protocol::wl_shm;
 
 use crate::{
     CpuFeatures,
     buffer::Buf,
+    log::{debug, error, warn},
 };
 
 #[derive(Clone, Copy, PartialEq)]

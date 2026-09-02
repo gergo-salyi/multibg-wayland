@@ -58,9 +58,11 @@ use ash::{
         SubmitInfo,
     }
 };
-use log::debug;
 
-use crate::guard::DropGuard;
+use crate::{
+    guard::DropGuard,
+    log::debug,
+};
 use super::{
     DRM_FORMAT_MOD_LINEAR, fmt_modifier,
     GpuDevice, GpuMemory, GpuUploader, GpuWallpaper,
