@@ -53,7 +53,8 @@ image = {
     default-features = false,
 }
 libc = "0.2.171"
-log = {
+_log = {
+    package = "log",
     version = "0.4",
     default-features = false,
     features = ["max_level_off"],
