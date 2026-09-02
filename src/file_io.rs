@@ -5,7 +5,7 @@ use std::{
     thread,
 };
 
-use crate::image::WallpaperFile;
+use crate::img::WallpaperFile;
 
 const MAX_IO_THREADS: usize = 2;
 

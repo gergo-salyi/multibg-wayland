@@ -11,7 +11,7 @@ use std::{
 use crate::{
     PKG_NAME, PKG_VERSION,
     compositors::Compositor,
-    image::Levels,
+    img::Levels,
     log::LogLevel,
     memchr::memchr,
 };

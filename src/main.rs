@@ -8,7 +8,7 @@ mod cpu;
 mod file_io;
 mod gpu;
 mod guard;
-mod image;
+mod img;
 mod log;
 mod memchr;
 mod poll;
@@ -54,7 +54,7 @@ use crate::{
     compositors::{Compositor, CompositorCtx, EventSender, WorkspaceVisible},
     cpu::CpuFeatures,
     gpu::Gpu,
-    image::{ColorTransform, Levels},
+    img::{ColorTransform, Levels},
     log::{set_log_level, debug, error, info, warn},
     poll::{Poll, Waker},
     signal::SignalPipe,

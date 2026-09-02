@@ -52,7 +52,7 @@ use crate::{
         DRM_FORMAT_XRGB8888, fmt_modifier,
         GpuMemory, GpuUploader, GpuWallpaper,
     },
-    image::{
+    img::{
         output_wallpaper_files,
         SurfaceLayout,
         WallpaperLoader,
