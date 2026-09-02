@@ -13,6 +13,7 @@ use crate::{
     compositors::Compositor,
     image::Levels,
     log::LogLevel,
+    memchr::memchr,
 };
 
 const HELP_TXT: &str = include_str!("help.txt");
@@ -388,7 +389,7 @@ impl Cli {
         args: &mut impl Iterator<Item = Vec<u8>>,
     ) -> Result<(), ()> {
         let mut value = None;
-        if let Some(idx) = arg.iter().position(|&b| b == b'=') {
+        if let Some(idx) = memchr(arg, b'=') {
             value = Some(&arg[idx + 1..]);
             arg = &arg[..idx];
         }
