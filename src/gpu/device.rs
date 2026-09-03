@@ -1,9 +1,5 @@
-use std::{
-    ffi::{c_char, CStr},
-    rc::Rc,
-};
+use super::*;
 
-use anyhow::{bail, Context};
 use ash::{
     Instance,
     ext::{
@@ -40,12 +36,6 @@ use ash::{
     }
 };
 use rustix::fs::{Dev, major, makedev, minor};
-
-use crate::{
-    guard::DropGuard,
-    log::{debug, error, warn},
-};
-use super::{GpuDevice, GpuInstance, has_extension};
 
 struct PhysdevInfo {
     physdev: PhysicalDevice,

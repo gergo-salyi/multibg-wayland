@@ -1,20 +1,4 @@
-use std::{
-    env::args_os,
-    ffi::OsStr,
-    fmt::{self, Display, Write as _},
-    io::{stdout, Write},
-    ops::RangeBounds,
-    os::unix::ffi::{OsStrExt, OsStringExt},
-    path::Path,
-};
-
-use crate::{
-    PKG_NAME, PKG_VERSION,
-    compositors::Compositor,
-    img::Levels,
-    log::LogLevel,
-    memchr::memchr,
-};
+use super::*;
 
 const HELP_TXT: &str = include_str!("help.txt");
 

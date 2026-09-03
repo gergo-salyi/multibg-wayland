@@ -1,9 +1,4 @@
-use std::{
-    alloc::{alloc, dealloc, handle_alloc_error, Layout, realloc},
-    ops::{Deref, DerefMut},
-    ptr::{self, NonNull},
-    slice,
-};
+use super::*;
 
 // A reusable buffer with large enough alignment for any SIMD use
 pub struct Buf(NonNull<[u8]>);

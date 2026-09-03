@@ -16,18 +16,41 @@ mod signal;
 mod wayland;
 
 use std::{
-    env::current_dir,
-    fmt,
-    io,
-    os::fd::AsFd,
-    path::PathBuf,
-    process::ExitCode,
-    sync::{
-        Arc,
-        mpsc::{channel, Receiver},
+    alloc::{alloc, dealloc, handle_alloc_error, Layout, realloc},
+    arch::asm,
+    array,
+    backtrace::Backtrace,
+    borrow::Cow,
+    cell::RefCell,
+    collections::HashMap,
+    env::{self, args_os, current_dir},
+    ffi::{c_char, c_int, c_void, CStr, OsStr, OsString},
+    fmt::{self, Debug, Display, Write as _},
+    fs::{self, read_dir},
+    hint::assert_unchecked,
+    io::{self, Cursor, stdout, Write},
+    marker::PhantomData,
+    mem::{ManuallyDrop, MaybeUninit, swap, transmute},
+    ops::{Deref, DerefMut, RangeBounds},
+    os::{
+        fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, OwnedFd},
+        unix::ffi::{OsStrExt, OsStringExt},
     },
+    path::{Path, PathBuf},
+    process::ExitCode,
+    ptr::{self, NonNull},
+    rc::{Rc, Weak},
+    slice,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicI32, Ordering::Relaxed},
+        mpsc::{self, channel, Receiver, Sender},
+    },
+    thread::{self, JoinHandle},
+    time::UNIX_EPOCH,
 };
 
+use anyhow::{bail, Context};
 use rustix::{
     event::{poll, PollFd, PollFlags},
     io::retry_on_intr,
@@ -50,13 +73,22 @@ use smithay_client_toolkit::reexports::protocols
     ::wp::viewporter::client::wp_viewporter::WpViewporter;
 
 use crate::{
+    buffer::Buf,
     cli::Cli,
     compositors::{Compositor, CompositorCtx, EventSender, WorkspaceVisible},
     cpu::CpuFeatures,
-    gpu::Gpu,
-    img::{ColorTransform, Levels},
-    log::{set_log_level, debug, error, info, warn},
-    poll::{Poll, Waker},
+    gpu::{
+        DRM_FORMAT_XRGB8888, fmt_modifier,
+        Gpu, GpuMemory, GpuUploader, GpuWallpaper,
+    },
+    guard::DropGuard,
+    img::{
+        ColorTransform, Levels, output_wallpaper_files,
+        SurfaceLayout, WallpaperFile, WallpaperLoader
+    },
+    log::{LogLevel, log_level, set_log_level, error, warn, info, debug, trace},
+    memchr::{memchr, memmem},
+    poll::{pipe_cloexec_nonblock, Poll, Waker},
     signal::SignalPipe,
     wayland::BackgroundLayer,
 };

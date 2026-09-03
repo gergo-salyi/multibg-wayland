@@ -1,28 +1,14 @@
 #[cfg(target_arch = "x86_64")]
 mod x86_64;
 
-use std::{
-    fs::read_dir,
-    io::Cursor,
-    mem::swap,
-    path::{Path, PathBuf},
-    time::UNIX_EPOCH,
-};
+use super::*;
 
-use anyhow::{bail, Context};
 use fast_image_resize::{
     FilterType, Resizer, ResizeAlg, ResizeOptions,
     images::{TypedImage, TypedImageRef},
     pixels::U8x3,
 };
 use image::{ColorType, ImageDecoder, ImageFormat, ImageReader};
-use smithay_client_toolkit::reexports::client::protocol::wl_shm;
-
-use crate::{
-    CpuFeatures,
-    buffer::Buf,
-    log::{debug, error, warn},
-};
 
 #[derive(Clone, Copy, PartialEq)]
 pub struct Levels {

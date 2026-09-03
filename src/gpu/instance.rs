@@ -1,11 +1,5 @@
-use std::{
-    backtrace::Backtrace,
-    borrow::Cow,
-    ffi::{c_char, c_void, CStr},
-    ptr,
-};
+use super::*;
 
-use anyhow::{bail, Context};
 use ash::{
     Entry,
     ext::{
@@ -32,9 +26,6 @@ use ash::{
         make_api_version,
     }
 };
-
-use crate::log::{debug, error, info, log_level, warn};
-use super::{Debug, GpuInstance, has_extension};
 
 const APP_VK_NAME: &CStr = match CStr::from_bytes_with_nul(
     concat!(env!("CARGO_PKG_NAME"), '\0').as_bytes()

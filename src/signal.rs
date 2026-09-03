@@ -1,11 +1,4 @@
-use std::{
-    ffi::c_int,
-    io,
-    mem::{ManuallyDrop, MaybeUninit},
-    os::fd::{AsRawFd, BorrowedFd, FromRawFd, OwnedFd},
-    ptr,
-    sync::atomic::{AtomicI32, Ordering::Relaxed},
-};
+use super::*;
 
 use libc::{
     raise, SA_RESETHAND, SA_RESTART, SIG_DFL, SIG_ERR,
@@ -13,11 +6,8 @@ use libc::{
     sigaction, sigemptyset, signal, sigset_t, write,
 };
 use rustix::{
-    fd::AsFd,
     io::read,
 };
-
-use crate::poll::pipe_cloexec_nonblock;
 
 const TERM_SIGNALS: [c_int; 3] = [SIGHUP, SIGINT, SIGTERM];
 const OTHER_SIGNALS: [c_int; 2] = [SIGUSR1, SIGUSR2];

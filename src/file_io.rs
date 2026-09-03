@@ -1,11 +1,4 @@
-use std::{
-    fs,
-    io,
-    sync::{Arc, mpsc, Mutex},
-    thread,
-};
-
-use crate::img::WallpaperFile;
+use super::*;
 
 const MAX_IO_THREADS: usize = 2;
 

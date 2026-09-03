@@ -6,14 +6,8 @@ mod device;
 mod instance;
 mod memory;
 
-use std::{
-    ffi::CStr,
-    os::fd::OwnedFd,
-    rc::{Rc, Weak},
-    slice,
-};
+use super::*;
 
-use anyhow::Context;
 use ash::{
     Device, Entry, Instance,
     ext::{debug_report, debug_utils, image_drm_format_modifier},
@@ -35,8 +29,6 @@ use ash::{
     }
 };
 use rustix::fs::Dev;
-
-use crate::log::{debug, error};
 
 use device::device;
 use instance::instance;

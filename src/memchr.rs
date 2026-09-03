@@ -1,7 +1,4 @@
-use std::{
-    ffi::c_int,
-    hint::assert_unchecked,
-};
+use super::*;
 
 pub fn memchr(haystack: &[u8], needle: u8) -> Option<usize> {
     let haystack_ptr = haystack.as_ptr();

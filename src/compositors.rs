@@ -2,19 +2,7 @@ mod hyprland;
 mod niri;
 mod sway;
 
-use std::{
-    borrow::Cow,
-    env,
-    ffi::{OsStr, OsString},
-    io::{stdout, Write},
-    os::{
-        fd::OwnedFd,
-        unix::ffi::OsStrExt,
-    },
-    path::{Path, PathBuf},
-    sync::{mpsc::Sender, Arc},
-    thread::{self, JoinHandle},
-};
+use super::*;
 
 use rustix::{
     buffer::spare_capacity,
@@ -25,12 +13,6 @@ use rustix::{
     },
 };
 use serde::{Deserialize, de::IgnoredAny};
-
-use crate::{
-    log::{debug, warn},
-    memchr::{memchr, memmem},
-    poll::Waker,
-};
 
 #[derive(Clone, Copy, Debug)]
 pub enum Compositor {

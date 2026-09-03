@@ -1,13 +1,7 @@
-use std::{
-    io,
-    marker::PhantomData,
-    mem::MaybeUninit,
-    os::fd::{BorrowedFd, OwnedFd},
-};
+use super::*;
 
 use rustix::{
     event::{PollFd, PollFlags, poll},
-    fd::AsFd,
     fs::{fcntl_setfl, OFlags},
     io::{Errno, fcntl_setfd, FdFlags, read, retry_on_intr, write},
     pipe::pipe,

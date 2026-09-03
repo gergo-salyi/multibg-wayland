@@ -1,19 +1,7 @@
+use super::*;
+
 // Based on the Rust Standard Library
 // src/core/mem/drop_guard.rs
-
-use std::{
-    fmt::{self, Debug},
-    mem::ManuallyDrop,
-    ops::{Deref, DerefMut},
-};
-
-// #[must_use]
-// pub const fn guard<T, F>(inner: T, f: F) -> DropGuard<T, F>
-// where
-//     F: FnOnce(T),
-// {
-//     DropGuard::new(inner, f)
-// }
 
 /// Wrap a value and run a closure when dropped.
 ///

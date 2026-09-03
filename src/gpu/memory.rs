@@ -1,12 +1,7 @@
 #![allow(clippy::too_many_arguments)]
 
-use std::{
-    os::fd::{FromRawFd, OwnedFd},
-    rc::Rc,
-    slice,
-};
+use super::*;
 
-use anyhow::{bail, Context};
 use ash::{
     Instance,
     vk::{
@@ -57,16 +52,6 @@ use ash::{
         SharingMode,
         SubmitInfo,
     }
-};
-
-use crate::{
-    guard::DropGuard,
-    log::debug,
-};
-use super::{
-    DRM_FORMAT_MOD_LINEAR, fmt_modifier,
-    GpuDevice, GpuMemory, GpuUploader, GpuWallpaper,
-    MemoryPlane,
 };
 
 pub unsafe fn uploader(

@@ -24,13 +24,6 @@ mod avx2;
 mod avx512bw;
 
 use super::*;
-use std::{
-    arch::asm,
-    array,
-    mem::transmute,
-    slice,
-};
-use crate::CpuFeatures;
 
 pub fn select_fns(cpu_features: CpuFeatures) -> Functions {
     if cpu_features.avx512vbmi() {

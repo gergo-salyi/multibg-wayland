@@ -1,11 +1,5 @@
-use std::{
-    cell::RefCell,
-    os::fd::AsFd,
-    path::PathBuf,
-    rc::{Rc, Weak},
-};
+use super::*;
 
-use anyhow::{bail, Context};
 use rustix::fs::{Dev, major, minor};
 use smithay_client_toolkit::{
     delegate_dispatch2, delegate_registry,
@@ -43,22 +37,6 @@ use smithay_client_toolkit::reexports::protocols::wp::{
         wp_viewport::WpViewport,
         wp_viewporter::WpViewporter
     }
-};
-
-use crate::{
-    flush_blocking, handle_visible_workspace, State,
-    file_io,
-    gpu::{
-        DRM_FORMAT_XRGB8888, fmt_modifier,
-        GpuMemory, GpuUploader, GpuWallpaper,
-    },
-    img::{
-        output_wallpaper_files,
-        SurfaceLayout,
-        WallpaperLoader,
-        WallpaperFile,
-    },
-    log::{debug, error, log_level, trace, warn},
 };
 
 const MAX_FDS_OUT: usize = 28;

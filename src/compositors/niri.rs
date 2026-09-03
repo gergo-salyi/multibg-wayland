@@ -2,8 +2,6 @@
 
 use super::*;
 
-use std::collections::HashMap;
-
 pub struct Niri {
     niri_socket: Box<Path>,
     subscribe_task: Option<JoinHandle<()>>,
