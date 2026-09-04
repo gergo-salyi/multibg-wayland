@@ -229,46 +229,21 @@ pub fn output_wallpaper_files(
 }
 
 pub struct SurfaceLayout {
-    pub format: wl_shm::Format,
     pub width: u32,
     pub stride: usize,
-    pub has_padding: bool,
     pub height: u32,
     pub size: usize,
 }
 
 impl SurfaceLayout {
-    pub fn shm(width: u32, height: u32, format: wl_shm::Format) -> Self {
-        let (stride, has_padding) = match format {
-            wl_shm::Format::Xrgb8888 => (width as usize * 4, false),
-            wl_shm::Format::Bgr888 => {
-                let unpadded = width as usize * 3;
-                // Align buffer stride:
-                // - once to 4, because not being aligned to 4 caused
-                //   https://github.com/gergo-salyi/multibg-wayland/issues/6
-                // - and to 3, because not being aligned to 3 caused
-                //   https://github.com/gergo-salyi/multibg-wayland/issues/17
-                // So align stride to 4 * 3 = 12
-                let stride = unpadded.next_multiple_of(12);
-                (stride, stride != unpadded)
-            },
-            _ => unreachable!(),
-        };
-        let size = stride * height as usize;
-        Self { format, width, stride, has_padding, height, size }
-    }
-
-    pub fn gpu(width: u32, height: u32) -> Self {
-        let format = wl_shm::Format::Xrgb8888;
+    pub fn new(width: u32, height: u32) -> Self {
         let stride = width as usize * 4;
-        let has_padding = false;
         let size = stride * height as usize;
-        Self { format, width, stride, has_padding, height, size }
+        Self { width, stride, height, size }
     }
 }
 
 struct Functions {
-    levels_in_place_fn: unsafe fn(&ColorTransform, &mut [u8]),
     levels_to_bgra_fn: unsafe fn(&ColorTransform, &mut [u8], &[u8]),
     bgra_from_rgb_fn: unsafe fn(&mut [u8], &[u8]),
 }
@@ -279,15 +254,9 @@ impl Functions {
         return x86_64::select_fns(cpu_features);
         #[allow(unreachable_code)]
         Functions {
-            levels_in_place_fn: levels_in_place,
             levels_to_bgra_fn: levels_to_bgra,
             bgra_from_rgb_fn: bgra_from_rgb,
         }
-    }
-
-    fn levels_in_place(&self, transform: &ColorTransform, buf: &mut [u8]) {
-        assert!(buf_is_aligned_to(buf, 64));
-        unsafe { (self.levels_in_place_fn)(transform, buf) }
     }
 
     fn levels_to_bgra(
@@ -383,16 +352,6 @@ impl WallpaperLoader {
         }
         let needs_resize = image_width != surface.width
             || image_height != surface.height;
-        if !needs_resize
-            && image_color_type == ColorType::Rgb8
-            && surface.format == wl_shm::Format::Bgr888
-            && self.color_transform.is_none()
-            && !surface.has_padding
-        {
-            debug!("Decoding image directly to destination buffer");
-            decoder.read_image(dst).context("Failed to decode image")?;
-            return Ok(())
-        }
         debug!("Decoding image into temporary buffer");
         self.buf.reserve(image_size);
         decoder.read_image(&mut self.buf[..image_size])
@@ -455,64 +414,21 @@ impl WallpaperLoader {
         }
         if let Some(transform) = &self.color_transform {
             debug!("Applying levels color transform to image");
-            if surface.format == wl_shm::Format::Xrgb8888 {
-                self.fns.levels_to_bgra(
-                    transform,
-                    dst,
-                    &self.buf[..image_size],
-                );
-                return Ok(())
-            } else {
-                self.fns.levels_in_place(
-                    transform,
-                    &mut self.buf[..image_size],
-                );
-            }
-        }
-        match surface.format {
-            wl_shm::Format::Bgr888 => if surface.has_padding {
-                debug!("Padding image stride");
-                copy_pad_stride(
-                    &self.buf[..image_size],
-                    dst,
-                    image_width as usize * 3,
-                    surface.stride,
-                    surface.height as usize,
-                );
-            } else {
-                dst.copy_from_slice(&self.buf[..image_size]);
-            },
-            wl_shm::Format::Xrgb8888 => {
-                self.fns.bgra_from_rgb(dst, &self.buf[..image_size]);
-            },
-            _ => unreachable!(),
+            self.fns.levels_to_bgra(
+                transform,
+                dst,
+                &self.buf[..image_size],
+            );
+        } else {
+            self.fns.bgra_from_rgb(dst, &self.buf[..image_size]);
         }
         let _ = (image_width, image_height, image_size);
         Ok(())
     }
 }
 
-fn copy_pad_stride(
-    src: &[u8],
-    dst: &mut [u8],
-    src_stride: usize,
-    dst_stride: usize,
-    height: usize,
-) {
-    for row in 0..height {
-        dst[row * dst_stride..][..src_stride]
-            .copy_from_slice(&src[row * src_stride..][..src_stride]);
-    }
-}
-
 fn mulhi(left: u16, right: u16) -> u16 {
     (((left as u32) * (right as u32)) >> 16) as u16
-}
-
-fn levels_in_place(transform: &ColorTransform, buf: &mut [u8]) {
-    for subpixel in buf {
-        *subpixel = transform.apply(*subpixel);
-    }
 }
 
 fn levels_to_bgra(transform: &ColorTransform, dst: &mut [u8], src: &[u8]) {

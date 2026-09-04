@@ -53,8 +53,7 @@ Options:
       Set logging verbosity level. Trace may log monitor serial numbers.
       log-level: off, error, warn, info, debug, trace (default: warn)
   --pixelformat <pixelformat>
-      Try to force wl_buffer pixel format to work around bugs.
-      pixelformat: auto, baseline (default: auto)
+      Deprecated and ignored. pixelformat: auto, baseline (default: auto)
   -h, --help
       Print help.
   -V, --version

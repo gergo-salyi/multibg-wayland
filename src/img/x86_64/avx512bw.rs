@@ -89,25 +89,6 @@ macro_rules! cvt_const_epu8_epi64 {
 }
 
 #[target_feature(enable = "avx512f,avx512bw")]
-pub unsafe fn levels_in_place(transform: &ColorTransform, buf: &mut [u8]) {
-    let levels = Levels::from_color_tranform(transform);
-    unsafe {
-        let (vectors, suffix) = split_aligned_mut::<Simd>(buf);
-        for vector_mut in vectors {
-            let input = load(vector_mut);
-            let output = levels.levels(input);
-            store(vector_mut, output);
-        }
-        if suffix.is_empty() {
-            return
-        }
-        let input = load_last(suffix);
-        let output = levels.levels(input);
-        store_last(suffix, output);
-    }
-}
-
-#[target_feature(enable = "avx512f,avx512bw")]
 pub unsafe fn levels_to_bgra_bw(
     transform: &ColorTransform,
     dst: &mut [u8],
@@ -447,13 +428,6 @@ fn load(simd_ref: &Simd) -> Simd {
 #[target_feature(enable = "avx512f,avx512bw")]
 fn load_array<const N: usize>(array_ref: &[Simd; N]) -> [Simd; N] {
     array::from_fn(|i| load(&array_ref[i]))
-}
-
-#[inline]
-#[target_feature(enable = "avx512f,avx512bw")]
-unsafe fn load_last(buf: &[u8]) -> Simd {
-    debug_assert_valid_last_access::<Simd>(buf);
-    unsafe { load_raw(buf.as_ptr().cast()) }
 }
 
 #[inline]

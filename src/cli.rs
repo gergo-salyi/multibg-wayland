@@ -33,7 +33,7 @@ impl CliFlag {
     const VERSION: Self = Self(1 << 1);
     const LIST_OUTPUTS: Self = Self(1 << 2);
     const GPU: Self = Self(1 << 3);
-    const PIXEL_FORMAT_BASELINE: Self = Self(1 << 4);
+    const HAS_PIXEL_FORMAT: Self = Self(1 << 4);
     const HAS_BRIGHTNESS_CONTRAST: Self = Self(1 << 5);
     const HAS_LEVELS: Self = Self(1 << 6);
 }
@@ -95,8 +95,8 @@ impl Cli {
         self.get(CliFlag::GPU)
     }
 
-    pub fn pixel_format_baseline(&self) -> bool {
-        self.get(CliFlag::PIXEL_FORMAT_BASELINE)
+    pub fn has_pixel_format(&self) -> bool {
+        self.get(CliFlag::HAS_PIXEL_FORMAT)
     }
 
     pub fn has_levels(&self) -> bool {
@@ -289,8 +289,7 @@ impl Cli {
 
     fn opt_pixel_format(&mut self, bytes: &[u8]) -> Result<(), ()> {
         match bytes {
-            b"auto" => self.unset(CliFlag::PIXEL_FORMAT_BASELINE),
-            b"baseline" => self.set(CliFlag::PIXEL_FORMAT_BASELINE),
+            b"auto" | b"baseline" => self.set(CliFlag::HAS_PIXEL_FORMAT),
             other => {
                 invalid("pixelformat", other, fmt_list(&["auto", "baseline"]));
                 return Err(())

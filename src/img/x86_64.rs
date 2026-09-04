@@ -29,35 +29,30 @@ pub fn select_fns(cpu_features: CpuFeatures) -> Functions {
     if cpu_features.avx512vbmi() {
         debug!("Using AVX512VBMI image processing functions");
         Functions {
-            levels_in_place_fn: avx512bw::levels_in_place,
             levels_to_bgra_fn: avx512bw::levels_to_bgra_vbmi,
             bgra_from_rgb_fn: avx512bw::bgra_from_rgb_vbmi,
         }
     } else if cpu_features.avx512bw() {
         debug!("Using AVX512BW image processing functions");
         Functions {
-            levels_in_place_fn: avx512bw::levels_in_place,
             levels_to_bgra_fn: avx512bw::levels_to_bgra_bw,
             bgra_from_rgb_fn: avx512bw::bgra_from_rgb_bw,
         }
     } else if cpu_features.avx2() {
         debug!("Using AVX2 image processing functions");
         Functions {
-            levels_in_place_fn: avx2::levels_in_place,
             levels_to_bgra_fn: avx2::levels_to_bgra,
             bgra_from_rgb_fn: avx2::bgra_from_rgb,
         }
     } else if cpu_features.ssse3() {
         debug!("Using SSSE3 image processing functions");
         Functions {
-            levels_in_place_fn: ssse3::levels_in_place,
             levels_to_bgra_fn: ssse3::levels_to_bgra,
             bgra_from_rgb_fn: ssse3::bgra_from_rgb,
         }
     } else {
         debug!("Using common image processing functions");
         Functions {
-            levels_in_place_fn: levels_in_place,
             levels_to_bgra_fn: levels_to_bgra,
             bgra_from_rgb_fn: bgra_from_rgb,
         }

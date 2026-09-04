@@ -964,12 +964,7 @@ fn load_wallpapers(
         state.cpu_features,
         state.color_transform,
     );
-    let layout_shm = SurfaceLayout::shm(
-        width as u32,
-        height as u32,
-        state.shm_format(),
-    );
-    let layout_gpu = SurfaceLayout::gpu(width as u32, height as u32);
+    let surface_layout = SurfaceLayout::new(width as u32, height as u32);
     let mut workspace_backgrounds = Vec::new();
     let mut reused_count = 0usize;
     let mut loaded_count = 0usize;
@@ -1026,7 +1021,7 @@ fn load_wallpapers(
         };
         if let Some(uploader) = gpu_uploader.as_mut() {
             if let Err(e) = loader.load_wallpaper(
-                &layout_gpu,
+                &surface_layout,
                 uploader.staging_buffer(),
                 &wallpaper_file.path,
                 &data,
@@ -1072,7 +1067,7 @@ fn load_wallpapers(
             fds_need_flush = 0;
         }
         fds_need_flush += 1;
-        let mut shm_pool = match RawPool::new(layout_shm.size, &state.shm) {
+        let mut shm_pool = match RawPool::new(surface_layout.size, &state.shm) {
             Ok(shm_pool) => shm_pool,
             Err(e) => {
                 error!("Failed to create shm pool: {e}");
@@ -1081,7 +1076,7 @@ fn load_wallpapers(
             }
         };
         if let Err(e) = loader.load_wallpaper(
-            &layout_shm,
+            &surface_layout,
             shm_pool.mmap(),
             &wallpaper_file.path,
             &data,
@@ -1092,7 +1087,7 @@ fn load_wallpapers(
         }
         let wl_buffer = wl_buffer_from_shm_pool(
             &mut shm_pool,
-            &layout_shm,
+            &surface_layout,
             qh,
         );
         workspace_backgrounds.push(WorkspaceBackground {
@@ -1159,7 +1154,7 @@ fn wl_buffer_from_shm_pool(
         layout.width as i32,
         layout.height as i32,
         layout.stride as i32,
-        layout.format,
+        wl_shm::Format::Xrgb8888,
         (),
         qh,
     )

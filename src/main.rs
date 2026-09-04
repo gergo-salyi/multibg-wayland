@@ -104,28 +104,12 @@ struct State {
     layer_shell: LayerShell,
     viewporter: WpViewporter,
     wallpaper_dir: PathBuf,
-    shm_format: Option<wl_shm::Format>,
     background_layers: Vec<BackgroundLayer>,
     compositor_ctx: Box<dyn CompositorCtx>,
     cpu_features: CpuFeatures,
     color_transform: Option<ColorTransform>,
     dmabuf_state: DmabufState,
     gpu: Option<Gpu>,
-}
-
-impl State {
-    fn shm_format(&mut self) -> wl_shm::Format {
-        *self.shm_format.get_or_insert_with(|| {
-            let mut format = wl_shm::Format::Xrgb8888;
-            // Consume less gpu memory by using Bgr888 if available,
-            // fall back to the always supported Xrgb8888 otherwise
-            if self.shm.formats().contains(&wl_shm::Format::Bgr888) {
-                format = wl_shm::Format::Bgr888
-            }
-            debug!("Using shm format: {format:?}");
-            format
-        })
-    }
 }
 
 fn main() -> ExitCode {
@@ -180,18 +164,9 @@ fn run() -> Result<(), ()> {
     let compositor_state = CompositorState::bind(&globals, &qh).unwrap();
     let layer_shell = LayerShell::bind(&globals, &qh).unwrap();
     let shm = Shm::bind(&globals, &qh).unwrap();
-    let shm_format = if cli.pixel_format_baseline() {
-        debug!("Using shm format: {:?}", wl_shm::Format::Xrgb8888);
-        Some(wl_shm::Format::Xrgb8888)
-    } else {
-        None
-    };
-
     let registry_state = RegistryState::new(&globals);
-
     let viewporter: WpViewporter = registry_state
         .bind_one(&qh, 1..=1, ()).expect("wp_viewporter not available");
-
     let dmabuf_state = DmabufState::new(&globals, &qh);
     let mut gpu = None;
     if cli.gpu() {
@@ -216,6 +191,10 @@ fn run() -> Result<(), ()> {
         }
     }
 
+    if cli.has_pixel_format() {
+        warn!("Option --pixelformat is deprecated an ignored");
+    }
+
     // Sync tools for sway ipc tasks
     let (tx, rx) = channel();
     let waker = Arc::new(Waker::new().unwrap());
@@ -228,7 +207,6 @@ fn run() -> Result<(), ()> {
         layer_shell,
         viewporter,
         wallpaper_dir,
-        shm_format,
         background_layers: Vec::new(),
         compositor_ctx,
         cpu_features,

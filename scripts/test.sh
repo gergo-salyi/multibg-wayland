@@ -7,35 +7,30 @@ tests=(
     shm_bgra_avx2
     shm_bgra_avx512bw
     shm_bgra_avx512vbmi
-    shm_rgb
     gpu
 )
 shm_bgra_baseline () {
     env=( MULTIBG_DEBUG_CPU=baseline )
-    multibg --pixelformat baseline
+    multibg
     assert_screenshot_eq
 }
 shm_bgra_ssse3 () {
     env=( MULTIBG_DEBUG_CPU=ssse3 )
-    multibg --pixelformat baseline
+    multibg
     assert_screenshot_eq
 }
 shm_bgra_avx2 () {
     env=( MULTIBG_DEBUG_CPU=avx2 )
-    multibg --pixelformat baseline
+    multibg
     assert_screenshot_eq
 }
 shm_bgra_avx512bw () {
     env=( MULTIBG_DEBUG_CPU=avx512bw )
-    multibg --pixelformat baseline
+    multibg
     assert_screenshot_eq
 }
 shm_bgra_avx512vbmi () {
     env=( MULTIBG_DEBUG_CPU=avx512vbmi )
-    multibg --pixelformat baseline
-    assert_screenshot_eq
-}
-shm_rgb () {
     multibg
     assert_screenshot_eq
 }
@@ -49,8 +44,8 @@ multibg () {
         XDG_RUNTIME_DIR="$XDG_RUNTIME_DIR" \
         I3SOCK="$sock" SWAYSOCK="$sock" \
         WAYLAND_DISPLAY="$wld" \
-        RUST_BACKTRACE=1 RUST_LOG=info,multibg_wayland=trace \
-        "${env[@]}" "$bin" "$@" w \
+        RUST_BACKTRACE=1 \
+        "${env[@]}" "$bin" --log-level=trace "$@" w \
         >>multibg.log 2>&1 &
     multibg_pid=$!
     sleep 0.5
