@@ -9,21 +9,21 @@ const SHORTS: &[(u8, Handler)] = &[
     (b'h', Flag(Cli::flag_help)),
 ];
 
-const LONGS: &[(&[u8], Handler)] = &[
-    (b"gpu", Flag(Cli::flag_gpu)),
-    (b"help", Flag(Cli::flag_help)),
-    (b"no-gpu", Flag(Cli::flag_no_gpu)),
-    (b"version", Flag(Cli::flag_version)),
-    (b"contrast", Opt(Cli::opt_contrast)),
-    (b"log-level", Opt(Cli::opt_log_level)),
-    (b"brightness", Opt(Cli::opt_brightness)),
-    (b"compositor", Opt(Cli::opt_compositor)),
-    (b"pixelformat", Opt(Cli::opt_pixel_format)),
-    (b"list-outputs", Flag(Cli::flag_list_outputs)),
-    (b"level-input-max", Opt(Cli::opt_level_input_max)),
-    (b"level-input-min", Opt(Cli::opt_level_input_min)),
-    (b"level-output-max", Opt(Cli::opt_level_output_max)),
-    (b"level-output-min", Opt(Cli::opt_level_output_min)),
+const LONGS: &[(&str, Handler)] = &[
+    ("gpu", Flag(Cli::flag_gpu)),
+    ("help", Flag(Cli::flag_help)),
+    ("no-gpu", Flag(Cli::flag_no_gpu)),
+    ("version", Flag(Cli::flag_version)),
+    ("contrast", Opt(Cli::opt_contrast)),
+    ("log-level", Opt(Cli::opt_log_level)),
+    ("brightness", Opt(Cli::opt_brightness)),
+    ("compositor", Opt(Cli::opt_compositor)),
+    ("pixelformat", Opt(Cli::opt_pixel_format)),
+    ("list-outputs", Flag(Cli::flag_list_outputs)),
+    ("level-input-max", Opt(Cli::opt_level_input_max)),
+    ("level-input-min", Opt(Cli::opt_level_input_min)),
+    ("level-output-max", Opt(Cli::opt_level_output_max)),
+    ("level-output-min", Opt(Cli::opt_level_output_min)),
 ];
 
 struct CliFlag(u32);
@@ -120,14 +120,13 @@ impl Cli {
     }
 
     fn positional(&mut self, bytes: &[u8]) -> Result<(), ()> {
+        let path = Path::new(OsStr::from_bytes(bytes));
         if let Some(wallpaper_dir) = self.wallpaper_dir.as_ref() {
-            error!("duplicate wallpaper_dir argument '{}' after '{}'",
-                fmt_bytes(bytes), wallpaper_dir.display());
+            error!("duplicate wallpaper_dir argument {} after {}",
+                quote_path(path), quote_path(wallpaper_dir));
             Err(())
         } else {
-            self.wallpaper_dir = Some(
-                Box::from(Path::new(OsStr::from_bytes(bytes)))
-            );
+            self.wallpaper_dir = Some(Box::from(path));
             Ok(())
         }
     }
@@ -336,13 +335,13 @@ impl Cli {
         while let Some(&short) = arg.first() {
             arg = &arg[1..];
             let Some(handler) = short_handler(short) else {
-                unrecognized(fmt_short(short));
+                unrecognized("-", &[short]);
                 return Err(())
             };
             match handler {
                 Flag(flag_fn) => {
                     if let Some(b'=') = arg.first() {
-                        excess_value(fmt_short(short), &arg[1..]);
+                        excess_value("-", &[short], &arg[1..]);
                         return Err(())
                     }
                     flag_fn(self)?;
@@ -352,7 +351,7 @@ impl Cli {
                         opt_fn(self, &arg[1..])?;
                     } else if arg.is_empty() {
                         let Some(val) = args.next() else {
-                            missing_value(fmt_short(short));
+                            missing_value("-", &[short]);
                             return Err(())
                         };
                         opt_fn(self, &val)?;
@@ -377,13 +376,13 @@ impl Cli {
             arg = &arg[..idx];
         }
         let Some(handler) = long_handler(arg) else {
-            unrecognized(fmt_long(arg));
+            unrecognized("--", arg);
             return Err(())
         };
         match handler {
             Flag(flag_fn) => {
                 if let Some(val) = value {
-                    excess_value(fmt_long(arg), val);
+                    excess_value("--", arg, val);
                     return Err(())
                 }
                 flag_fn(self)?;
@@ -393,7 +392,7 @@ impl Cli {
                     opt_fn(self, val)?;
                 } else {
                     let Some(val) = args.next() else {
-                        missing_value(fmt_long(arg));
+                        missing_value("--", arg);
                         return Err(())
                     };
                     opt_fn(self, &val)?;
@@ -418,7 +417,8 @@ fn short_handler(short: u8) -> Option<Handler> {
 
 fn long_handler(long: &[u8]) -> Option<Handler> {
     let idx = LONGS.binary_search_by(|elem|
-        elem.0.len().cmp(&long.len()).then_with(|| elem.0.cmp(long))
+        elem.0.len().cmp(&long.len())
+            .then_with(|| elem.0.as_bytes().cmp(long))
     ).ok()?;
     Some(LONGS[idx].1)
 }
@@ -461,46 +461,28 @@ macro_rules! error {
 }
 use error;
 
-fn unrecognized(opt: impl Display) {
-    error!("unrecognized option '{}'", opt);
+fn unrecognized(dash: &str, opt: &[u8]) {
+    error!("unrecognized option {}", quote_prefixed_bytes(dash, opt));
 }
 
-fn excess_value(flag: impl Display, val: &[u8]) {
-    error!("flag '{flag}' takes no value but found '{}'", fmt_bytes(val));
+fn excess_value(dash: &str, flag: &[u8], val: &[u8]) {
+    error!("flag {}{} takes no value but found {}",
+        dash, str::from_utf8(flag).unwrap(), quote_bytes(val));
 }
 
-fn missing_value(opt: impl Display) {
-    error!("missing value for option '{opt}'");
+fn missing_value(dash: &str, opt: &[u8]) {
+    error!("missing value for option {}{}",
+        dash, str::from_utf8(opt).unwrap());
 }
 
 fn invalid(opt: &str, bytes: &[u8], valid: impl Display) {
-    error!("invalid {opt} value '{}', expected: {valid}", fmt_bytes(bytes));
+    error!("invalid {} value {}, expected: {}",
+        opt, quote_bytes(bytes), valid);
 }
 
 fn conflict_levels_legacy() {
     error!("options --level-* are mutually exclusive with \
         legacy options brightness and contrast");
-}
-
-fn fmt_bytes(bytes: &[u8]) -> impl Display {
-    fmt::from_fn(|f| {
-        // See std::str::Utf8Chunks
-        for chunk in bytes.utf8_chunks() {
-            f.write_str(chunk.valid())?;
-            if !chunk.invalid().is_empty() {
-                f.write_char(char::REPLACEMENT_CHARACTER)?;
-            }
-        }
-        Ok(())
-    })
-}
-
-fn fmt_short(short: u8) -> impl Display {
-    fmt::from_fn(move |f| write!(f, "-{}", fmt_bytes(&[short])))
-}
-
-fn fmt_long(long: &[u8]) -> impl Display {
-    fmt::from_fn(|f| write!(f, "--{}", fmt_bytes(long)))
 }
 
 fn fmt_list(values: &[&str]) -> impl Display {
@@ -532,8 +514,8 @@ const _: () = {
 
     let mut i = 1;
     while i < LONGS.len() {
-        let left = LONGS[i - 1].0;
-        let right = LONGS[i].0;
+        let left = LONGS[i - 1].0.as_bytes();
+        let right = LONGS[i].0.as_bytes();
         if left.len() > right.len() {
             panic!("LONGS not sorted")
         } else if left.len() == right.len() {

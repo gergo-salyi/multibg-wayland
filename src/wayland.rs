@@ -305,7 +305,7 @@ impl DmabufHandler for State {
                 if wallpaper_borrow.memory.dmabuf_params_destroy_eq(params) {
                     wallpaper_borrow.wl_buffer = Some(buffer);
                     debug!("Created Linux DMA-BUF buffer for wallpaper \
-                        file {:?}", wallpaper_borrow.canon_path);
+                        file {}", quote_path(&wallpaper_borrow.canon_path));
                     wallpaper_ptr = Some(wallpaper.as_ptr());
                     break 'outer
                 }
@@ -493,8 +493,8 @@ impl OutputHandler for State {
             factor: {}, logical size: {}x{}, transform: {:?}",
             output_name, width, height, integer_scale_factor,
             logical_width, logical_height, info.transform);
-        trace!("New output make-model-serial: '{}'",
-            output_make_model_serial);
+        trace!("New output make-model-serial: {}",
+            quote_str(&output_make_model_serial));
 
         let layer = self.layer_shell.create_layer_surface(
             qh,
@@ -933,8 +933,8 @@ fn load_wallpapers(
     let height = bg_layer.height;
     let transform = bg_layer.transform;
     let output_dir = wallpaper_dir.join(output_name);
-    debug!("Looking for wallpapers for new output {} in {:?}",
-        output_name, output_dir);
+    debug!("Looking for wallpapers for new output {} in {}",
+        output_name, quote_path(&output_dir));
     let mut wallpaper_files = output_wallpaper_files(&output_dir);
     if wallpaper_files.is_err() {
         // Try the other output directory based on make-model-serial
@@ -943,8 +943,8 @@ fn load_wallpapers(
             let output_dir = wallpaper_dir.join(
                 &bg_layer.output_make_model_serial
             );
-            trace!("Looking for wallpapers for new output {} in {:?}",
-                output_name, output_dir);
+            trace!("Looking for wallpapers for new output {} in {}",
+                output_name, quote_path(&output_dir));
             if let Ok(files) = output_wallpaper_files(&output_dir) {
                 wallpaper_files = Ok(files);
             }
@@ -954,7 +954,7 @@ fn load_wallpapers(
         Ok(wallpaper_files) => wallpaper_files,
         Err(e) => {
             error!("Failed to get wallpapers for new output {output_name} \
-                form {output_dir:?}: {e:#}");
+                form {}: {e:#}", quote_path(&output_dir));
             return
         }
     };
@@ -974,11 +974,13 @@ fn load_wallpapers(
     for wallpaper_file in wallpaper_files {
         if log_level().debug() {
             if wallpaper_file.path == wallpaper_file.canon_path {
-                debug!("Wallpaper file {:?} for workspace {}",
-                    wallpaper_file.path, wallpaper_file.workspace);
+                debug!("Wallpaper file {} for workspace {}",
+                    quote_path(&wallpaper_file.path),
+                    wallpaper_file.workspace);
             } else {
-                debug!("Wallpaper file {:?} -> {:?} for workspace {}",
-                    wallpaper_file.path, wallpaper_file.canon_path,
+                debug!("Wallpaper file {} -> {} for workspace {}",
+                    quote_path(&wallpaper_file.path),
+                    quote_path(&wallpaper_file.canon_path),
                     wallpaper_file.workspace);
             }
         }
@@ -1013,8 +1015,8 @@ fn load_wallpapers(
         let data = match wallpaper_data.data {
             Ok(bytes) => bytes,
             Err(e) => {
-                error!("Failed to read wallpaper file {:?}: {}",
-                    wallpaper_file.path, e);
+                error!("Failed to read wallpaper file {}: {}",
+                    quote_path(&wallpaper_file.path), e);
                 error_count += 1;
                 continue
             }

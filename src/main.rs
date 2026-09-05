@@ -25,7 +25,7 @@ use std::{
     collections::HashMap,
     env::{self, args_os, current_dir},
     ffi::{c_char, c_int, c_void, CStr, OsStr, OsString},
-    fmt::{self, Debug, Display, Write as _},
+    fmt::{self, Debug, Display, Formatter, Write as _},
     fs::{self, read_dir},
     hint::assert_unchecked,
     io::{self, Cursor, stdout, Write},
@@ -86,7 +86,10 @@ use crate::{
         ColorTransform, Levels, output_wallpaper_files,
         SurfaceLayout, WallpaperFile, WallpaperLoader
     },
-    log::{LogLevel, log_level, set_log_level, error, warn, info, debug, trace},
+    log::{
+        LogLevel, log_level, set_log_level, error, warn, info, debug, trace,
+        quote_bytes, quote_prefixed_bytes, quote_path, quote_str,
+    },
     memchr::{memchr, memmem},
     poll::{pipe_cloexec_nonblock, Poll, Waker},
     signal::SignalPipe,

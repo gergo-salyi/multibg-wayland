@@ -194,7 +194,7 @@ pub fn output_wallpaper_files(
         };
         let path = dir_entry.path();
         if path.is_dir() {
-            warn!("Skipping nested directory {path:?}");
+            warn!("Skipping nested directory {}", quote_path(&path));
             continue
         }
         let workspace = path.file_stem().unwrap()
@@ -203,14 +203,16 @@ pub fn output_wallpaper_files(
         let canon_path = match path.canonicalize() {
             Ok(canon_path) => canon_path,
             Err(e) => {
-                error!("Failed to resolve absolute path for {path:?}: {e}");
+                error!("Failed to resolve absolute path for {}: {}",
+                    quote_path(&path), e);
                 continue
             }
         };
         let canon_metadata = match canon_path.metadata() {
             Ok(canon_metadata) => canon_metadata,
             Err(e) => {
-                error!("Failed to get file metadata for {canon_path:?}: {e}");
+                error!("Failed to get file metadata for {}: {}",
+                    quote_path(&canon_path), e);
                 continue
             }
         };
