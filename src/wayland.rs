@@ -876,7 +876,7 @@ fn find_equal_output_wallpaper(
 }
 
 fn print_memory_stats(background_layers: &[BackgroundLayer]) {
-    if log_level().debug() {
+    if log_enabled(LogLevel::Debug) {
         let mut wl_shm_count = 0.0f32;
         let mut wl_shm_size = 0.0f32;
         let mut dmabuf_count = 0.0f32;
@@ -972,7 +972,7 @@ fn load_wallpapers(
     flush_blocking(connection);
     let mut fds_need_flush = 0usize;
     for wallpaper_file in wallpaper_files {
-        if log_level().debug() {
+        if log_enabled(LogLevel::Debug) {
             if wallpaper_file.path == wallpaper_file.canon_path {
                 debug!("Wallpaper file {} for workspace {}",
                     quote_path(&wallpaper_file.path),

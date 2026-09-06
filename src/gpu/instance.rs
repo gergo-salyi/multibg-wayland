@@ -67,7 +67,7 @@ pub unsafe fn instance() -> anyhow::Result<GpuInstance> {
     let mut extension_layers = Vec::new();
     let mut has_debug_utils = false;
     let mut has_debug_report = false;
-    if log_level().debug() {
+    if log_enabled(LogLevel::Debug) {
         debug!("Running with log level DEBUG or higher \
             so trying to enable Vulkan validation layers");
         if has_layer(&instance_layer_props, LAYER_VALIDATION) {

@@ -449,11 +449,11 @@ fn parse_f32_in_range(
 
 #[cold]
 fn print_error(message: impl Display) {
-    eprintln!(
+    eprintln_fmt(format_args!(
         "{PKG_NAME} {PKG_VERSION}\n\
         ERROR {message}\n\
         Try '{PKG_NAME} --help' for more information.",
-    );
+    ));
 }
 
 macro_rules! error {

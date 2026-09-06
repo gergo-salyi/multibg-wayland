@@ -3,76 +3,157 @@ use super::*;
 #[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
 pub enum LogLevel { Off, Error, Warn, Info, Debug, Trace }
 
-impl LogLevel {
-    pub fn error(self) -> bool {
-        self >= Self::Error
-    }
-
-    pub fn warn(self) -> bool {
-        self >= Self::Warn
-    }
-
-    pub fn info(self) -> bool {
-        self >= Self::Info
-    }
-
-    pub fn debug(self) -> bool {
-        self >= Self::Debug
-    }
-
-    pub fn trace(self) -> bool {
-        self >= Self::Trace
-    }
-}
-
 static mut LOG_LEVEL: LogLevel = LogLevel::Off;
-
-pub fn log_level() -> LogLevel {
-    unsafe { LOG_LEVEL }
-}
 
 pub unsafe fn set_log_level(log_level: LogLevel) {
     unsafe { LOG_LEVEL = log_level }
 }
 
-macro_rules! error {
-    ($($arg:tt)*) => {
-        if $crate::log::log_level().error() {
-            eprintln!("ERROR {}", format_args!($($arg)*));
+fn log_level() -> LogLevel {
+    unsafe { LOG_LEVEL }
+}
+
+pub fn log_enabled(level: LogLevel) -> bool {
+    log_level() >= level
+}
+
+pub struct StderrBuf {
+    buf: [MaybeUninit<u8>; Self::CAP],
+    len: usize,
+    stderr_lock: StderrLock<'static>,
+}
+
+impl StderrBuf {
+    const CAP: usize = 2048;
+
+    fn new() -> Self {
+        Self {
+            buf: [const { MaybeUninit::uninit() }; Self::CAP],
+            len: 0,
+            stderr_lock: stderr().lock(),
         }
     }
+
+    fn write(&mut self, buf: &[u8]) {
+        let buf_len = buf.len();
+        if buf_len > Self::CAP - self.len {
+            cold_path();
+            self.flush();
+            if buf_len > Self::CAP {
+                write_all(&mut self.stderr_lock, buf);
+                return
+            }
+        }
+        unsafe {
+            ptr::copy_nonoverlapping(
+                buf.as_ptr(),
+                self.buf.get_unchecked_mut(self.len..).as_mut_ptr().cast(),
+                buf_len,
+            );
+            self.len += buf_len;
+        }
+    }
+
+    fn flush(&mut self) {
+        write_all(
+            &mut self.stderr_lock,
+            unsafe { self.buf.get_unchecked(..self.len).assume_init_ref() },
+        );
+        self.len = 0;
+    }
+
+    fn push_str(&mut self, s: &str) {
+        self.write(s.as_bytes());
+    }
+}
+
+impl fmt::Write for StderrBuf {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        self.push_str(s);
+        Ok(())
+    }
+}
+
+fn write_all(stderr_lock: &mut StderrLock<'static>, buf: &[u8]) {
+    stderr_lock.write_all(buf).unwrap()
+}
+
+fn eprint_with(f: impl FnOnce(&mut StderrBuf)) {
+    let mut buf = StderrBuf::new();
+    f(&mut buf);
+    buf.flush();
+}
+
+fn eprintln_with(f: impl FnOnce(&mut StderrBuf)) {
+    eprint_with(|buf| {
+        f(buf);
+        buf.push_str("\n");
+    })
+}
+
+pub fn eprintln_fmt(args: fmt::Arguments<'_>) {
+    eprintln_with(|buf| { buf.write_fmt(args).unwrap() })
+}
+
+#[inline(never)]
+pub fn log(args: fmt::Arguments<'_>) {
+    eprintln_fmt(args)
+}
+
+#[inline(never)]
+pub fn log_error(args: fmt::Arguments<'_>) {
+    eprintln_with(|buf| {
+        buf.push_str("ERROR ");
+        buf.write_fmt(args).unwrap();
+    })
+}
+
+#[inline(never)]
+pub fn log_warn(args: fmt::Arguments<'_>) {
+    eprintln_with(|buf| {
+        buf.push_str("WARNING ");
+        buf.write_fmt(args).unwrap();
+    })
+}
+
+macro_rules! error {
+    ($($arg:tt)*) => {{
+        if log_enabled(LogLevel::Error) {
+            log_error(format_args!($($arg)*))
+        }
+    }}
 }
 
 macro_rules! warning {
-    ($($arg:tt)*) => {
-        if $crate::log::log_level().warn() {
-            eprintln!("WARNING {}", format_args!($($arg)*));
+    ($($arg:tt)*) => {{
+        if log_enabled(LogLevel::Warn) {
+           log_warn(format_args!($($arg)*))
         }
-    }
+    }}
 }
 
 macro_rules! info {
-    ($($arg:tt)*) => {
-        if $crate::log::log_level().info() {
-            eprintln!($($arg)*);
+    ($($arg:tt)*) => {{
+        if log_enabled(LogLevel::Info) {
+            log(format_args!($($arg)*))
         }
-    }
+    }}
 }
 
 macro_rules! debug {
-    ($($arg:tt)*) => {
-        if $crate::log::log_level().debug() {
-            eprintln!($($arg)*);
+    ($($arg:tt)*) => {{
+        if log_enabled(LogLevel::Debug) {
+            log(format_args!($($arg)*))
         }
-    }
+    }}
 }
 
 macro_rules! trace {
-    ($($arg:tt)*) => {
-        if $crate::log::log_level().trace() {
-            eprintln!($($arg)*);
+    ($($arg:tt)*) => {{
+        if log_enabled(LogLevel::Trace) {
+            log(format_args!($($arg)*))
         }
-    }
+    }}
 }
 
 pub(crate) use {error, warning as warn, info, debug, trace};

@@ -27,8 +27,8 @@ use std::{
     ffi::{c_char, c_int, c_void, CStr, OsStr, OsString},
     fmt::{self, Debug, Display, Formatter, Write as _},
     fs::{self, read_dir},
-    hint::assert_unchecked,
-    io::{self, Cursor, stdout, Write},
+    hint::{assert_unchecked, cold_path},
+    io::{self, Cursor, stderr, StderrLock, stdout, Write},
     marker::PhantomData,
     mem::{ManuallyDrop, MaybeUninit, swap, transmute},
     ops::{Deref, DerefMut, RangeBounds},
@@ -87,7 +87,8 @@ use crate::{
         SurfaceLayout, WallpaperFile, WallpaperLoader
     },
     log::{
-        LogLevel, log_level, set_log_level, error, warn, info, debug, trace,
+        error, warn, info, debug, trace, log_error, log_warn, log,
+        eprintln_fmt, LogLevel, log_enabled, set_log_level,
         quote_bytes, quote_prefixed_bytes, quote_path, quote_str,
     },
     memchr::{memchr, memmem},
