@@ -42,7 +42,7 @@ use smithay_client_toolkit::reexports::protocols::wp::{
 const MAX_FDS_OUT: usize = 28;
 
 pub struct BackgroundLayer {
-    pub output_name: String,
+    pub output_name: Box<str>,
     output_make_model_serial: Option<Box<str>>,
     width: i32,
     height: i32,
@@ -80,12 +80,12 @@ impl BackgroundLayer {
         }
 
         let Some(workspace_bg) = self.workspace_backgrounds.iter()
-            .find(|bg| bg.workspace_name == workspace_name)
+            .find(|bg| *bg.workspace_name == *workspace_name)
             .or_else(|| self.workspace_backgrounds.iter()
                 .find(|bg| bg.workspace_number == workspace_number)
             )
             .or_else(|| self.workspace_backgrounds.iter()
-                .find(|bg| bg.workspace_name == "_default")
+                .find(|bg| &*bg.workspace_name == "_default")
             )
         else {
             error!(
@@ -94,7 +94,7 @@ impl BackgroundLayer {
                 self.output_name,
                 workspace_name,
                 self.workspace_backgrounds.iter()
-                    .map(|workspace_bg| workspace_bg.workspace_name.as_str())
+                    .map(|workspace_bg| &*workspace_bg.workspace_name)
                     .collect::<Vec<_>>().join(", ")
             );
             return
@@ -152,7 +152,7 @@ impl BackgroundLayer {
 }
 
 struct WorkspaceBackground {
-    workspace_name: String,
+    workspace_name: Box<str>,
     workspace_number: i32,
     wallpaper: Rc<RefCell<Wallpaper>>,
 }
@@ -160,7 +160,7 @@ struct WorkspaceBackground {
 struct Wallpaper {
     wl_buffer: Option<WlBuffer>,
     memory: Memory,
-    canon_path: PathBuf,
+    canon_path: Box<Path>,
     canon_modified: u128,
 }
 
@@ -579,7 +579,7 @@ impl OutputHandler for State {
         let is_dmabuf_feedback = dmabuf_feedback.is_some();
         let bg_layer_index = self.background_layers.len();
         self.background_layers.push(BackgroundLayer {
-            output_name,
+            output_name: output_name.into_boxed_str(),
             output_make_model_serial,
             width,
             height,
@@ -666,7 +666,7 @@ impl OutputHandler for State {
             logical_width, logical_height, info.transform);
 
         let Some(bg_layer) = self.background_layers.iter_mut()
-            .find(|bg_layers| bg_layers.output_name == output_name)
+            .find(|bg_layers| *bg_layers.output_name == *output_name)
         else {
             error!("Updated output {} has no background layer, skipping",
                 output_name);
@@ -734,7 +734,7 @@ impl OutputHandler for State {
         debug!("Output destroyed: {}", output_name);
 
         if let Some(bg_layer_index) = self.background_layers.iter()
-            .position(|bg_layers| bg_layers.output_name == output_name)
+            .position(|bg_layers| *bg_layers.output_name == *output_name)
         {
             let removed_bg_layer = self.background_layers
                 .swap_remove(bg_layer_index);
@@ -748,7 +748,7 @@ impl OutputHandler for State {
                 "Dropping {} wallpapers on destroyed output for workspaces: {}",
                 removed_bg_layer.workspace_backgrounds.len(),
                 removed_bg_layer.workspace_backgrounds.iter()
-                    .map(|workspace_bg| workspace_bg.workspace_name.as_str())
+                    .map(|workspace_bg| &*workspace_bg.workspace_name)
                     .collect::<Vec<_>>().join(", ")
             );
 
@@ -759,7 +759,7 @@ impl OutputHandler for State {
                     known outputs were: {}",
                 output_name,
                 self.background_layers.iter()
-                    .map(|bg_layer| bg_layer.output_name.as_str())
+                    .map(|bg_layer| &*bg_layer.output_name)
                     .collect::<Vec<_>>().join(", ")
             );
         }
@@ -928,7 +928,7 @@ fn load_wallpapers(
 ) {
     let bg_layer = &state.background_layers[bg_layer_index];
     let wallpaper_dir = &state.wallpaper_dir;
-    let output_name = bg_layer.output_name.as_str();
+    let output_name = &*bg_layer.output_name;
     let width = bg_layer.width;
     let height = bg_layer.height;
     let transform = bg_layer.transform;
@@ -1125,7 +1125,7 @@ fn load_wallpapers(
         loaded_count, reused_count, error_count);
     debug!("Wallpapers are available for workspaces: {}",
         workspace_backgrounds.iter()
-            .map(|bg| bg.workspace_name.as_str())
+            .map(|bg| &*bg.workspace_name)
             .collect::<Vec<_>>().join(", "));
     state.background_layers[bg_layer_index].workspace_backgrounds =
         workspace_backgrounds;
@@ -1249,7 +1249,7 @@ fn wallpaper_dmabuf(
     gpu_wallpaper: GpuWallpaper,
     width: i32,
     height: i32,
-    canon_path: PathBuf,
+    canon_path: Box<Path>,
     canon_modified: u128,
 ) -> Rc<RefCell<Wallpaper>> {
     let GpuWallpaper {

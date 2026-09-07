@@ -333,7 +333,7 @@ fn handle_sway_event(
 fn handle_visible_workspace(state: &mut State, workspace: WorkspaceVisible) {
     // Find the background layer that of the output where the workspace is
     if let Some(affected_bg_layer) = state.background_layers.iter_mut()
-        .find(|bg_layer| bg_layer.output_name == workspace.output)
+        .find(|bg_layer| *bg_layer.output_name == *workspace.output)
     {
         affected_bg_layer.draw_workspace_bg(
             &workspace.workspace_name,

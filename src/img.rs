@@ -172,10 +172,10 @@ impl ColorTransform {
 }
 
 pub struct WallpaperFile {
-    pub path: PathBuf,
-    pub workspace: String,
+    pub path: Box<Path>,
+    pub workspace: Box<str>,
     pub workspace_number: i32,
-    pub canon_path: PathBuf,
+    pub canon_path: Box<Path>,
     pub canon_modified: u128,
 }
 
@@ -192,16 +192,16 @@ pub fn output_wallpaper_files(
                 break
             }
         };
-        let path = dir_entry.path();
+        let path = dir_entry.path().into_boxed_path();
         if path.is_dir() {
             warn!("Skipping nested directory {}", quote_path(&path));
             continue
         }
         let workspace = path.file_stem().unwrap()
-            .to_string_lossy().into_owned();
+            .to_string_lossy().into_owned().into_boxed_str();
         let workspace_number: i32 = workspace.parse().unwrap_or_default();
         let canon_path = match path.canonicalize() {
-            Ok(canon_path) => canon_path,
+            Ok(canon_path) => canon_path.into_boxed_path(),
             Err(e) => {
                 error!("Failed to resolve absolute path for {}: {}",
                     quote_path(&path), e);
