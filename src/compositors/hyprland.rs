@@ -46,17 +46,14 @@ impl CompositorCtx for Hyprland {
     fn list_outputs(&mut self) {
         let mut buf = Vec::new();
         let monitors = self.connect_hyprctl_sock().monitors(&mut buf);
-        let mut stdout = stdout().lock();
+        let mut stdout_lock = stdout().lock();
         for monitor in monitors {
-            writeln!(
-                stdout,
-                "{}: '{}'",
-                monitor.name,
-                make_model_serial(
-                    &monitor.make,
-                    &monitor.model,
-                    &monitor.serial,
-                ),
+            print_output(
+                &mut stdout_lock,
+                &monitor.name,
+                &monitor.make,
+                &monitor.model,
+                &monitor.serial,
             ).unwrap();
         }
     }
@@ -69,7 +66,7 @@ impl CompositorCtx for Hyprland {
         self.connect_hyprctl_sock().visible_workspaces()
     }
 
-    fn make_model_serial(&mut self, output: &str) -> String {
+    fn make_model_serial(&mut self, output: &str) -> Option<Box<str>> {
         self.connect_hyprctl_sock().make_model_serial(output)
     }
 
@@ -108,7 +105,7 @@ impl HyprctlConn {
             .collect()
     }
 
-    fn make_model_serial(self, output: &str) -> String {
+    fn make_model_serial(self, output: &str) -> Option<Box<str>> {
         let mut buf = Vec::new();
         let monitors = self.monitors(&mut buf);
         let monitor = monitors.into_iter()

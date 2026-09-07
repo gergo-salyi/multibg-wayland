@@ -29,17 +29,14 @@ impl CompositorCtx for Sway {
     fn list_outputs(&mut self) {
         let mut conn = self.connect();
         let outputs = conn.outputs();
-        let mut stdout = stdout().lock();
+        let mut stdout_lock = stdout().lock();
         outputs.into_iter().for_each(|output| {
-            writeln!(
-                stdout,
-                "{}: '{}'",
-                output.name,
-                make_model_serial(
-                    output.make.as_ref(),
-                    output.model.as_ref(),
-                    output.serial.as_ref(),
-                ),
+            print_output(
+                &mut stdout_lock,
+                &output.name,
+                &output.make,
+                &output.model,
+                &output.serial,
             ).unwrap();
         });
     }
@@ -52,14 +49,14 @@ impl CompositorCtx for Sway {
         self.connect().visible_workspaces()
     }
 
-    fn make_model_serial(&mut self, output: &str) -> String {
+    fn make_model_serial(&mut self, output: &str) -> Option<Box<str>> {
         let mut conn = self.connect();
         let output = conn.outputs().into_iter()
             .find(|o| o.name == output).unwrap();
         make_model_serial(
-            output.make.as_ref(),
-            output.model.as_ref(),
-            output.serial.as_ref(),
+            &output.make,
+            &output.model,
+            &output.serial,
         )
     }
 

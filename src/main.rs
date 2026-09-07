@@ -28,7 +28,7 @@ use std::{
     fmt::{self, Debug, Display, Formatter, Write as _},
     fs::{self, read_dir},
     hint::{assert_unchecked, cold_path},
-    io::{self, Cursor, stderr, StderrLock, stdout, Write},
+    io::{self, Cursor, stderr, StderrLock, stdout, StdoutLock, Write},
     marker::PhantomData,
     mem::{ManuallyDrop, MaybeUninit, swap, transmute},
     ops::{Deref, DerefMut, RangeBounds},
@@ -346,7 +346,7 @@ fn handle_visible_workspace(state: &mut State, workspace: WorkspaceVisible) {
             workspace.workspace_name,
             workspace.output,
             state.background_layers.iter()
-            .map(|bg_layer| bg_layer.output_name.as_str())
+            .map(|bg_layer| &*bg_layer.output_name)
             .collect::<Vec<_>>().join(", ")
         );
     }

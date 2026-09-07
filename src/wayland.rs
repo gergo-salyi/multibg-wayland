@@ -43,7 +43,7 @@ const MAX_FDS_OUT: usize = 28;
 
 pub struct BackgroundLayer {
     pub output_name: String,
-    output_make_model_serial: String,
+    output_make_model_serial: Option<Box<str>>,
     width: i32,
     height: i32,
     layer: LayerSurface,
@@ -494,7 +494,7 @@ impl OutputHandler for State {
             output_name, width, height, integer_scale_factor,
             logical_width, logical_height, info.transform);
         trace!("New output make-model-serial: {}",
-            quote_str(&output_make_model_serial));
+            quote_str(output_make_model_serial.as_deref().unwrap_or("")));
 
         let layer = self.layer_shell.create_layer_surface(
             qh,
@@ -936,18 +936,15 @@ fn load_wallpapers(
     debug!("Looking for wallpapers for new output {} in {}",
         output_name, quote_path(&output_dir));
     let mut wallpaper_files = output_wallpaper_files(&output_dir);
-    if wallpaper_files.is_err() {
+    if wallpaper_files.is_err() && let Some(make_model_serial) =
+        bg_layer.output_make_model_serial.as_ref()
+    {
         // Try the other output directory based on make-model-serial
-        let make_model_serial = &bg_layer.output_make_model_serial;
-        if !make_model_serial.is_empty() {
-            let output_dir = wallpaper_dir.join(
-                &bg_layer.output_make_model_serial
-            );
-            trace!("Looking for wallpapers for new output {} in {}",
-                output_name, quote_path(&output_dir));
-            if let Ok(files) = output_wallpaper_files(&output_dir) {
-                wallpaper_files = Ok(files);
-            }
+        let output_dir = wallpaper_dir.join(&**make_model_serial);
+        trace!("Looking for wallpapers for new output {} in {}",
+            output_name, quote_path(&output_dir));
+        if let Ok(files) = output_wallpaper_files(&output_dir) {
+            wallpaper_files = Ok(files);
         }
     }
     let wallpaper_files = match wallpaper_files {

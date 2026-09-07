@@ -75,13 +75,10 @@ impl Compositor {
 
 pub trait CompositorCtx {
     fn list_outputs(&mut self);
+    fn visible_workspace(&mut self, output: &str) -> Option<WorkspaceVisible>;
     fn visible_workspaces(&mut self) -> Vec<WorkspaceVisible>;
-    fn make_model_serial(&mut self, output: &str) -> String;
+    fn make_model_serial(&mut self, output: &str) -> Option<Box<str>>;
     fn subscribe(&mut self, event_sender: EventSender);
-
-    fn visible_workspace(&mut self, output: &str) -> Option<WorkspaceVisible> {
-        self.visible_workspaces().into_iter().find(|w| w.output == output)
-    }
 }
 
 /// abstract 'sending back workspace change events'
@@ -108,12 +105,50 @@ pub struct WorkspaceVisible {
     pub workspace_number: i32,
 }
 
-fn make_model_serial(make: &str, model: &str, serial: &str) -> String {
-    [make, model, serial].into_iter()
-        .map(|s| s.trim())
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<&str>>()
-        .join(" ")
+fn make_model_serial(
+    make: &str,
+    model: &str,
+    serial: &str,
+) -> Option<Box<str>> {
+    let mut len = 0;
+    for s in [make, model, serial] {
+        if !s.is_empty() {
+            if len != 0 {
+                len += 1;
+            }
+            len += s.len();
+        }
+    }
+    if len == 0 {
+        return None
+    }
+    let mut string = String::with_capacity(len);
+    for s in [make, model, serial] {
+        if !s.is_empty() {
+            if !string.is_empty() {
+               string.push(' ');
+            }
+            string.push_str(s);
+        }
+    }
+    debug_assert_eq!(string.len(), string.capacity());
+    Some(string.into_boxed_str())
+}
+
+fn print_output(
+    stdout_lock: &mut StdoutLock,
+    name: &str,
+    make: &str,
+    model: &str,
+    serial: &str,
+) -> io::Result<()> {
+    let make_model_serial = make_model_serial(make, model, serial);
+    writeln!(
+        stdout_lock,
+        "{}: {}",
+        name,
+        quote_str(make_model_serial.as_deref().unwrap_or(""))
+    )
 }
 
 fn debug_selecting(compositor: &str, reason: &str) {

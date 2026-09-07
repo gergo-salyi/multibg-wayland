@@ -25,10 +25,15 @@ impl CompositorCtx for Niri {
     fn list_outputs(&mut self) {
         let mut conn = self.connect();
         let outputs = conn.outputs();
-        let mut stdout = stdout().lock();
+        let mut stdout_lock = stdout().lock();
         outputs.into_iter().for_each(|(name, output)| {
-            writeln!(stdout, "{}: '{}'",
-                name, output.make_model_serial()).unwrap();
+            print_output(
+                &mut stdout_lock,
+                &name,
+                &output.make,
+                &output.model,
+                output.serial.as_deref().unwrap_or(""),
+            ).unwrap();
         });
     }
 
@@ -49,13 +54,17 @@ impl CompositorCtx for Niri {
             .collect()
     }
 
-    fn make_model_serial(&mut self, output: &str) -> String {
+    fn make_model_serial(&mut self, output: &str) -> Option<Box<str>> {
         let mut conn = self.connect();
         let outputs = conn.outputs();
-        outputs.into_iter()
+        let output = outputs.into_iter()
             .find(|(name, _)| name == output).unwrap()
-            .1
-            .make_model_serial()
+            .1;
+        make_model_serial(
+            &output.make,
+            &output.model,
+            output.serial.as_deref().unwrap_or(""),
+        )
     }
 
     fn subscribe(&mut self, event_sender: EventSender) {
@@ -232,16 +241,6 @@ struct Output<'a> {
     model: Cow<'a, str>,
     #[serde(borrow)]
     serial: Option<Cow<'a, str>>,
-}
-
-impl Output<'_> {
-    fn make_model_serial(&self) -> String {
-        make_model_serial(
-            self.make.as_ref(),
-            self.model.as_ref(),
-            self.serial.as_deref().unwrap_or(""),
-        )
-    }
 }
 
 #[derive(Deserialize)]
