@@ -131,9 +131,10 @@ fn run() -> Result<(), ()> {
     unsafe { set_log_level(cli.log_level) }
     info!("{PKG_NAME} {PKG_VERSION}");
 
-    let compositor = cli.compositor
-        .or_else(Compositor::from_env)
-        .unwrap_or(Compositor::Sway);
+    let Some(compositor) = cli.compositor.or_else(Compositor::from_env) else {
+        error!("Cannot determine what compositor IPC interface to use");
+        return Err(())
+    };
 
     let mut compositor_ctx = compositor.context();
 
