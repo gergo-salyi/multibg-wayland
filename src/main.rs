@@ -23,7 +23,7 @@ use std::{
     borrow::Cow,
     cell::RefCell,
     collections::HashMap,
-    env::{self, args_os, current_dir},
+    env::{self, args_os},
     ffi::{c_char, c_int, c_void, CStr, OsStr, OsString},
     fmt::{self, Debug, Display, Formatter, Write as _},
     fs::{self, read_dir},
@@ -107,7 +107,7 @@ struct State {
     shm: Shm,
     layer_shell: LayerShell,
     viewporter: WpViewporter,
-    wallpaper_dir: PathBuf,
+    wallpaper_dir: Option<Box<Path>>,
     background_layers: Vec<BackgroundLayer>,
     compositor_ctx: Box<dyn CompositorCtx>,
     cpu_features: CpuFeatures,
@@ -142,10 +142,6 @@ fn run() -> Result<(), ()> {
         return Ok(())
     }
 
-    let wallpaper_dir = match cli.wallpaper_dir.as_ref() {
-        Some(dir) => dir.canonicalize().unwrap(),
-        None => current_dir().unwrap().canonicalize().unwrap(),
-    };
     let cpu_features = CpuFeatures::detect();
     let color_transform = if cli.has_levels() {
         Some(ColorTransform::from_levels(cli.levels))
@@ -210,7 +206,7 @@ fn run() -> Result<(), ()> {
         shm,
         layer_shell,
         viewporter,
-        wallpaper_dir,
+        wallpaper_dir: cli.wallpaper_dir,
         background_layers: Vec::new(),
         compositor_ctx,
         cpu_features,

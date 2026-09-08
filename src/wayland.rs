@@ -932,18 +932,30 @@ fn load_wallpapers(
     let width = bg_layer.width;
     let height = bg_layer.height;
     let transform = bg_layer.transform;
-    let output_dir = wallpaper_dir.join(output_name);
+    let path_buf;
+    let output_dir = if let Some(dir) = wallpaper_dir {
+        path_buf = concat_paths(dir, Path::new(output_name));
+        &path_buf
+    } else {
+        Path::new(output_name)
+    };
     debug!("Looking for wallpapers for new output {} in {}",
-        output_name, quote_path(&output_dir));
-    let mut wallpaper_files = output_wallpaper_files(&output_dir);
+        output_name, quote_path(output_dir));
+    let mut wallpaper_files = output_wallpaper_files(output_dir);
     if wallpaper_files.is_err() && let Some(make_model_serial) =
         bg_layer.output_make_model_serial.as_ref()
     {
         // Try the other output directory based on make-model-serial
-        let output_dir = wallpaper_dir.join(&**make_model_serial);
+        let path_buf;
+        let output_dir = if let Some(dir) = wallpaper_dir {
+            path_buf = concat_paths(dir, Path::new(&**make_model_serial));
+            &path_buf
+        } else {
+            Path::new(&**make_model_serial)
+        };
         trace!("Looking for wallpapers for new output {} in {}",
-            output_name, quote_path(&output_dir));
-        if let Ok(files) = output_wallpaper_files(&output_dir) {
+            output_name, quote_path(output_dir));
+        if let Ok(files) = output_wallpaper_files(output_dir) {
             wallpaper_files = Ok(files);
         }
     }
@@ -951,7 +963,7 @@ fn load_wallpapers(
         Ok(wallpaper_files) => wallpaper_files,
         Err(e) => {
             error!("Failed to get wallpapers for new output {output_name} \
-                form {}: {e:#}", quote_path(&output_dir));
+                form {}: {e:#}", quote_path(output_dir));
             return
         }
     };
@@ -1296,4 +1308,13 @@ fn malloc_trim_all() {
         use libc::*;
         let _ = unsafe { malloc_trim(0) };
     }
+}
+
+fn concat_paths(left: &Path, right: &Path) -> PathBuf {
+    let mut path_buf = PathBuf::with_capacity(
+        left.as_os_str().len() + 1 + right.as_os_str().len()
+    );
+    path_buf.push(left);
+    path_buf.push(right);
+    path_buf
 }
