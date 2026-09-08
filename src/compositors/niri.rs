@@ -80,8 +80,7 @@ const REQUEST_EVENT_STREAM: &[u8] = b"\"EventStream\"\n";
 
 struct Connection {
     socket: OwnedFd,
-    buf: Vec<u8>,
-    parsed_len: usize,
+    read_buf: ReadBuf,
 }
 
 impl Connection {
@@ -89,8 +88,7 @@ impl Connection {
         let socket = connect_unix(niri_socket).unwrap();
         Self {
             socket,
-            buf: Vec::with_capacity(240),
-            parsed_len: 0,
+            read_buf: ReadBuf::new(),
         }
     }
 
@@ -143,8 +141,7 @@ impl Connection {
             if let Some(bytes) = self.take_response() {
                 return bytes
             }
-            self.prepare_buf();
-            match read(&self.socket, spare_capacity(&mut self.buf)) {
+            match read(&self.socket, self.read_buf.spare_capacity()) {
                 Ok(0) => panic!("niri IPC socket disconnected"),
                 Ok(_) => (),
                 Err(Errno::INTR) => (),
@@ -154,26 +151,11 @@ impl Connection {
     }
 
     fn take_response(&mut self) -> Option<&[u8]> {
-        let unparsed = &self.buf[self.parsed_len..];
+        let unparsed = &self.read_buf.buf[self.read_buf.parsed_len..];
         let idx = memchr(unparsed, b'\n')?;
         let response = &unparsed[..idx];
-        self.parsed_len += idx + 1;
+        self.read_buf.parsed_len += idx + 1;
         Some(response)
-    }
-
-    fn prepare_buf(&mut self) {
-        let unparsed_len = self.buf.len().strict_sub(self.parsed_len);
-        if self.parsed_len != 0 {
-            if unparsed_len == 0 {
-                self.buf.clear();
-            } else {
-                self.buf.copy_within(self.parsed_len.., 0);
-                self.buf.truncate(unparsed_len);
-            }
-            self.parsed_len = 0;
-        } else if self.buf.len() == self.buf.capacity() {
-            self.buf.reserve(self.buf.capacity() / 2);
-        }
     }
 }
 

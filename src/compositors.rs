@@ -5,7 +5,7 @@ mod sway;
 use super::*;
 
 use rustix::{
-    buffer::spare_capacity,
+    buffer::{SpareCapacity, spare_capacity},
     io::{Errno, read},
     net::{
         AddressFamily, connect, send, SendFlags,
@@ -167,4 +167,45 @@ fn connect_unix(path: &Path) -> Option<OwnedFd> {
         &SocketAddrUnix::new(path).ok()?,
     ).ok()?;
     Some(socket)
+}
+
+struct ReadBuf {
+    buf: Vec<u8>,
+    parsed_len: usize,
+}
+
+impl ReadBuf {
+    fn new() -> Self {
+        Self { buf: Vec::with_capacity(1000), parsed_len: 0 }
+    }
+
+    fn unparsed_len(&self) -> usize {
+        self.buf.len().strict_sub(self.parsed_len)
+    }
+
+    fn spare_capacity(&mut self) -> SpareCapacity<'_, u8> {
+        self.consolidate();
+        self.reserve();
+        spare_capacity(&mut self.buf)
+    }
+
+    fn consolidate(&mut self) {
+        if self.parsed_len != 0 {
+            let unparsed_len = self.unparsed_len();
+            if unparsed_len == 0 {
+                self.buf.clear();
+            } else {
+                self.buf.copy_within(self.parsed_len.., 0);
+                self.buf.truncate(unparsed_len);
+            }
+            self.parsed_len = 0;
+        }
+    }
+
+    fn reserve(&mut self) {
+        let capacity = self.buf.capacity();
+        if self.buf.len() == capacity {
+            self.buf.reserve_exact(capacity / 2);
+        }
+    }
 }

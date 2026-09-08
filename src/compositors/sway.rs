@@ -69,8 +69,7 @@ impl CompositorCtx for Sway {
 
 struct Connection {
     socket: OwnedFd,
-    in_buf: Vec<u8>,
-    parsed_len: usize,
+    read_buf: ReadBuf,
     out_buf: Vec<u8>,
 }
 
@@ -79,8 +78,7 @@ impl Connection {
         let socket = connect_unix(swaysock).unwrap();
         Self {
             socket,
-            in_buf: Vec::with_capacity(14),
-            parsed_len: 0,
+            read_buf: ReadBuf::new(),
             out_buf: Vec::new(),
         }
     }
@@ -112,10 +110,9 @@ impl Connection {
 
     fn recv(&mut self) -> (u32, &[u8]) {
         loop {
-            let unparsed_len = self.in_buf.len().strict_sub(self.parsed_len);
-            let mut reply_len = 0;
-            if unparsed_len >= 14 {
-                let unparsed = &self.in_buf[self.parsed_len..];
+            let buf = &self.read_buf.buf;
+            let unparsed = &buf[self.read_buf.parsed_len..];
+            if let Some(maybe_payload) = &unparsed.get(14..) {
                 assert_eq!(&unparsed[0..6], MAGIC);
                 let payload_len: usize = u32::from_ne_bytes(
                     unparsed[6..10].try_into().unwrap()
@@ -123,27 +120,12 @@ impl Connection {
                 let payload_type = u32::from_ne_bytes(
                     unparsed[10..14].try_into().unwrap()
                 );
-                reply_len = 14 + payload_len;
-                if unparsed_len >= reply_len {
-                    let payload = &unparsed[14..reply_len];
-                    self.parsed_len += reply_len;
+                if let Some(payload) = &maybe_payload.get(..payload_len) {
+                    self.read_buf.parsed_len += 14 + payload_len;
                     return (payload_type, payload)
                 }
             }
-            if self.parsed_len != 0 {
-                if unparsed_len == 0 {
-                    self.in_buf.clear();
-                } else {
-                    self.in_buf.copy_within(self.parsed_len.., 0);
-                    self.in_buf.truncate(unparsed_len);
-                }
-                self.parsed_len = 0;
-            } else if self.in_buf.len() == self.in_buf.capacity() {
-                self.in_buf.reserve_exact(
-                    reply_len.strict_sub(self.in_buf.capacity())
-                );
-            }
-            match read(&self.socket, spare_capacity(&mut self.in_buf)) {
+            match read(&self.socket, self.read_buf.spare_capacity()) {
                 Ok(0) => panic!("Sway IPC socket disconnected"),
                 Ok(_) => (),
                 Err(Errno::INTR) => (),

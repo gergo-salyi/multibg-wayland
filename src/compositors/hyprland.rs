@@ -225,8 +225,7 @@ impl Subscriber {
 
 struct EventConn {
     socket: OwnedFd,
-    buf: Vec<u8>,
-    parsed_len: usize,
+    read_buf: ReadBuf,
 }
 
 impl EventConn {
@@ -234,8 +233,7 @@ impl EventConn {
         let socket = connect_unix(path).unwrap();
         Self {
             socket,
-            buf: Vec::with_capacity(240),
-            parsed_len: 0,
+            read_buf: ReadBuf::new(),
         }
     }
 
@@ -244,8 +242,7 @@ impl EventConn {
             if let Some(event) = self.take_event() {
                 return event
             }
-            self.prepare_buf();
-            match read(&self.socket, spare_capacity(&mut self.buf)) {
+            match read(&self.socket, self.read_buf.spare_capacity()) {
                 Ok(0) => panic!("Sway IPC socket disconnected"),
                 Ok(_) => (),
                 Err(Errno::INTR) => (),
@@ -255,33 +252,19 @@ impl EventConn {
     }
 
     fn take_event(&mut self) -> Option<Event<'_>> {
-        let mut parsed_len = self.parsed_len;
+        let buf = &self.read_buf.buf;
+        let mut parsed_len = self.read_buf.parsed_len;
 
-        let idx = memmem(&self.buf[parsed_len..], b">>")?;
-        let name = &self.buf[parsed_len..][..idx];
+        let idx = memmem(&buf[parsed_len..], b">>")?;
+        let name = &buf[parsed_len..][..idx];
         parsed_len += idx + 2;
 
-        let idx = memchr(&self.buf[parsed_len..], b'\n')?;
-        let data = &self.buf[parsed_len..][..idx];
+        let idx = memchr(&buf[parsed_len..], b'\n')?;
+        let data = &buf[parsed_len..][..idx];
         parsed_len += idx + 1;
 
-        self.parsed_len = parsed_len;
+        self.read_buf.parsed_len = parsed_len;
         Some(Event { name, data })
-    }
-
-    fn prepare_buf(&mut self) {
-        let unparsed_len = self.buf.len().strict_sub(self.parsed_len);
-        if self.parsed_len != 0 {
-            if unparsed_len == 0 {
-                self.buf.clear();
-            } else {
-                self.buf.copy_within(self.parsed_len.., 0);
-                self.buf.truncate(unparsed_len);
-            }
-            self.parsed_len = 0;
-        } else if self.buf.len() == self.buf.capacity() {
-            self.buf.reserve(self.buf.capacity() / 2);
-        }
     }
 }
 
