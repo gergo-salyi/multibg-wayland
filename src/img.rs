@@ -19,7 +19,37 @@ pub struct Levels {
 }
 
 impl Levels {
-    pub fn from_legacy(brightness: i32, contrast: f32) -> Self {
+    pub fn from_legacy_warn(brightness: i32, contrast: f32) -> Self {
+        let levels = Levels::from_legacy(brightness, contrast);
+        warn!("{}", fmt::from_fn(|w| {
+            write!(w, "Options --brightness and --contrast are deprecated, \
+                they are difficult to use correctly. Use the --level-* \
+                options instead, see --help. Current")?;
+            if brightness != 0 {
+                write!(w, " --brightness={}", brightness)?;
+            }
+            if contrast != 0.0 {
+                write!(w, " --contrast={}", contrast)?;
+            }
+            write!(w, " is equivalent to")?;
+            if levels.output_min != 0.0 {
+                write!(w, " --level-output-min={}", levels.output_min)?;
+            }
+            if levels.output_max != 1.0 {
+                write!(w, " --level-output-max={}", levels.output_max)?;
+            }
+            if levels.input_min != 0.0 {
+                write!(w, " --level-input-min={}", levels.input_min)?;
+            }
+            if levels.input_max != 1.0 {
+                write!(w, " --level-input-max={}", levels.input_max)?;
+            }
+            Ok(())
+        }));
+        levels
+    }
+
+    fn from_legacy(brightness: i32, contrast: f32) -> Self {
         // Functions from the image crate
         let max = u8::MAX as f32;
         let percent = ((100.0 + contrast) / 100.0).powi(2);

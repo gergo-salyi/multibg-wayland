@@ -171,8 +171,7 @@ fn run() -> Result<(), ()> {
     let color_transform = if cli.has_levels() {
         Some(ColorTransform::from_levels(cli.levels))
     } else if cli.has_brightness_contrast() {
-        let levels = Levels::from_legacy(cli.brightness, cli.contrast);
-        warn_brightness_contrast(cli.brightness, cli.contrast, &levels);
+        let levels = Levels::from_legacy_warn(cli.brightness, cli.contrast);
         Some(ColorTransform::from_levels(levels))
     } else {
         None
@@ -371,36 +370,4 @@ fn flush_blocking(connection: &Connection) {
         }
         result.expect("Failed to flush Wayland event queue");
     }
-}
-
-fn warn_brightness_contrast(
-    brightness: i32,
-    contrast: f32,
-    levels: &Levels,
-) {
-    warn!("{}", fmt::from_fn(|w| {
-        write!(w, "Options --brightness and --contrast are deprecated, \
-            they are difficult to use correctly. Use the --level-* \
-            options instead, see --help. Current")?;
-        if brightness != 0 {
-            write!(w, " --brightness={}", brightness)?;
-        }
-        if contrast != 0.0 {
-            write!(w, " --contrast={}", contrast)?;
-        }
-        write!(w, " is equivalent to")?;
-        if levels.output_min != 0.0 {
-            write!(w, " --level-output-min={}", levels.output_min)?;
-        }
-        if levels.output_max != 1.0 {
-            write!(w, " --level-output-max={}", levels.output_max)?;
-        }
-        if levels.input_min != 0.0 {
-            write!(w, " --level-input-min={}", levels.input_min)?;
-        }
-        if levels.input_max != 1.0 {
-            write!(w, " --level-input-max={}", levels.input_max)?;
-        }
-        Ok(())
-    }));
 }
