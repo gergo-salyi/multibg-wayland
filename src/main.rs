@@ -92,7 +92,7 @@ use crate::{
         quote_bytes, quote_prefixed_bytes, quote_path, quote_str,
     },
     memchr::{memchr, memmem},
-    poll::{pipe_cloexec_nonblock, Poll, Waker},
+    poll::{pipe_cloexec_nonblock, Poll, Token, Waker},
     signal::SignalPipe,
     wayland::BackgroundLayer,
 };
@@ -114,6 +114,30 @@ struct State {
     color_transform: Option<ColorTransform>,
     dmabuf_state: DmabufState,
     gpu: Option<Gpu>,
+}
+
+impl State {
+    fn handle_visible_workspace(&mut self, workspace: WorkspaceVisible) {
+        // Find the background layer that of the output where the workspace is
+        if let Some(affected_bg_layer) = self.background_layers.iter_mut()
+            .find(|bg_layer| *bg_layer.output_name == *workspace.output)
+        {
+            affected_bg_layer.draw_workspace_bg(
+                &workspace.workspace_name,
+                workspace.workspace_number,
+            );
+        } else {
+            error!(
+                "Workspace '{}' is on an unknown output '{}', \
+                known outputs were: {}",
+                workspace.workspace_name,
+                workspace.output,
+                self.background_layers.iter()
+                    .map(|bg_layer| &*bg_layer.output_name)
+                    .collect::<Vec<_>>().join(", ")
+            );
+        }
+    }
 }
 
 fn main() -> ExitCode {
@@ -153,10 +177,6 @@ fn run() -> Result<(), ()> {
     } else {
         None
     };
-
-    // ********************************
-    //     Initialize wayland client
-    // ********************************
 
     let conn = Connection::connect_to_env().unwrap();
     let (globals, mut event_queue) = registry_queue_init(&conn).unwrap();
@@ -220,10 +240,6 @@ fn run() -> Result<(), ()> {
 
     debug!("Initial wayland roundtrip done. Starting main event loop.");
 
-    // ********************************
-    //     Main event loop
-    // ********************************
-
     let mut poll = Poll::with_capacity(3);
     let token_wayland = poll.add_readable(&conn);
     state.compositor_ctx.subscribe(EventSender::new(tx, waker.clone()));
@@ -233,28 +249,65 @@ fn run() -> Result<(), ()> {
         .ok();
     let token_signal = signal_pipe.as_ref().map(|pipe| poll.add_readable(pipe));
 
-    loop {
-        flush_blocking(&conn);
-        let read_guard = ensure_prepare_read(&mut state, &mut event_queue);
-        poll.poll().expect("Main event loop poll failed");
-        if poll.ready(token_wayland) {
-            handle_wayland_event(&mut state, &mut event_queue, read_guard);
+    let mut event_loop = EventLoop {
+        state: &mut state,
+        connection: &conn,
+        event_queue: &mut event_queue,
+        rx: &rx,
+        waker: &waker,
+        signal_pipe: &signal_pipe,
+        poll,
+        token_wayland,
+        token_compositor,
+        token_signal,
+    };
+    event_loop.run()
+}
+
+struct EventLoop<'a> {
+    state: &'a mut State,
+    connection: &'a Connection,
+    event_queue: &'a mut EventQueue<State>,
+    rx: &'a Receiver<WorkspaceVisible>,
+    waker: &'a Waker,
+    signal_pipe: &'a Option<SignalPipe>,
+    poll: Poll<'a>,
+    token_wayland: Token<'a>,
+    token_compositor: Token<'a>,
+    token_signal: Option<Token<'a>>,
+}
+
+impl EventLoop<'_> {
+    fn run(&mut self) -> Result<(), ()> {
+        loop {
+            if let Some(result) = self.cycle() {
+                return result
+            }
+        }
+    }
+
+    fn cycle(&mut self) -> Option<Result<(), ()>> {
+        flush_blocking(self.connection);
+        let read_guard = self.ensure_prepare_read();
+        self.poll.poll().expect("Main event loop poll failed");
+        if self.poll.ready(self.token_wayland) {
+            self.handle_wayland_event(read_guard);
         } else {
             drop(read_guard);
         }
-        if poll.ready(token_compositor) {
-            waker.read();
-            handle_sway_event(&mut state, &rx);
+        if self.poll.ready(self.token_compositor) {
+            self.waker.read();
+            self.handle_sway_event();
         }
-        if let Some(token_signal) = token_signal
-            && poll.ready(token_signal)
+        if let Some(token_signal) = self.token_signal
+            && self.poll.ready(token_signal)
         {
-            match signal_pipe.as_ref().unwrap().read() {
+            match self.signal_pipe.as_ref().unwrap().read() {
                 Err(e) => error!("Failed to read the signal pipe: {e}"),
                 Ok(signal_flags) => {
                     if let Some(signal) = signal_flags.any_termination() {
                         info!("Received signal {signal}, exiting");
-                        return Ok(());
+                        return Some(Ok(()));
                     } else if signal_flags.has_usr1()
                         || signal_flags.has_usr2()
                     {
@@ -263,6 +316,40 @@ fn run() -> Result<(), ()> {
                     }
                 },
             }
+        }
+        None
+    }
+
+    fn ensure_prepare_read(&mut self) -> ReadEventsGuard {
+        loop {
+            if let Some(guard) = self.event_queue.prepare_read() {
+                return guard
+            }
+            self.event_queue.dispatch_pending(self.state)
+                .expect("Failed to dispatch pending Wayland events");
+        }
+    }
+
+    fn handle_wayland_event(&mut self, read_guard: ReadEventsGuard) {
+        match read_guard.read() {
+            Ok(_) => {
+                self.event_queue.dispatch_pending(self.state)
+                    .expect("Failed to dispatch pending Wayland events");
+            },
+            Err(error) => {
+                if let WaylandError::Io(io_error) = &error
+                    && io_error.kind() == io::ErrorKind::WouldBlock
+                {
+                    return
+                }
+                panic!("Failed to read Wayland events: {error}");
+            }
+        }
+    }
+
+    fn handle_sway_event(&mut self) {
+        while let Ok(workspace) = self.rx.try_recv() {
+            self.state.handle_visible_workspace(workspace);
         }
     }
 }
@@ -283,69 +370,6 @@ fn flush_blocking(connection: &Connection) {
             continue
         }
         result.expect("Failed to flush Wayland event queue");
-    }
-}
-
-fn ensure_prepare_read(
-    state: &mut State,
-    event_queue: &mut EventQueue<State>,
-) -> ReadEventsGuard {
-    loop {
-        if let Some(guard) = event_queue.prepare_read() { return guard }
-        event_queue.dispatch_pending(state)
-            .expect("Failed to dispatch pending Wayland events");
-    }
-}
-
-fn handle_wayland_event(
-    state: &mut State,
-    event_queue: &mut EventQueue<State>,
-    read_guard: ReadEventsGuard,
-) {
-    match read_guard.read() {
-        Ok(_) => {
-            event_queue.dispatch_pending(state)
-                .expect("Failed to dispatch pending Wayland events");
-        },
-        Err(error) => {
-            if let WaylandError::Io(io_error) = &error
-                && io_error.kind() == io::ErrorKind::WouldBlock
-            {
-                return
-            }
-            panic!("Failed to read Wayland events: {error}");
-        }
-    }
-}
-
-fn handle_sway_event(
-    state: &mut State,
-    rx: &Receiver<WorkspaceVisible>,
-) {
-    while let Ok(workspace) = rx.try_recv() {
-        handle_visible_workspace(state, workspace);
-    }
-}
-
-fn handle_visible_workspace(state: &mut State, workspace: WorkspaceVisible) {
-    // Find the background layer that of the output where the workspace is
-    if let Some(affected_bg_layer) = state.background_layers.iter_mut()
-        .find(|bg_layer| *bg_layer.output_name == *workspace.output)
-    {
-        affected_bg_layer.draw_workspace_bg(
-            &workspace.workspace_name,
-            workspace.workspace_number,
-        );
-    } else {
-        error!(
-            "Workspace '{}' is on an unknown output '{}', \
-            known outputs were: {}",
-            workspace.workspace_name,
-            workspace.output,
-            state.background_layers.iter()
-            .map(|bg_layer| &*bg_layer.output_name)
-            .collect::<Vec<_>>().join(", ")
-        );
     }
 }
 

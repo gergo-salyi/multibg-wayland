@@ -738,7 +738,7 @@ impl OutputHandler for State {
             // Workspaces on the destroyed output may have been moved anywhere
             // so reset the wallpaper on all the visible workspaces
             self.compositor_ctx.visible_workspaces().into_iter()
-                .for_each(|workspace| handle_visible_workspace(self, workspace));
+                .for_each(|workspace| self.handle_visible_workspace(workspace));
 
             debug!(
                 "Dropping {} wallpapers on destroyed output for workspaces: {}",
