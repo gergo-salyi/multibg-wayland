@@ -7,39 +7,58 @@ use rustix::{
     pipe::pipe,
 };
 
-pub struct Poll<'fd> {
-    poll_fds: Vec<PollFd<'fd>>,
+pub struct Poll<const N: usize> {
+    poll_fds: [MaybeUninit<PollFd<'static>>; N],
+    len: usize,
 }
 
-impl<'fd> Poll<'fd> {
-    pub fn with_capacity(capacity: usize) -> Self {
-        Poll { poll_fds: Vec::with_capacity(capacity) }
+impl<const N: usize> Poll<N> {
+    pub fn new() -> Self {
+        Self {
+            poll_fds: [const { MaybeUninit::uninit() }; N],
+            len: 0,
+        }
     }
 
-    pub fn add_readable(&mut self, fd: &'fd impl AsFd) -> Token<'fd> {
-        let index = self.poll_fds.len();
-        self.poll_fds.push(PollFd::new(fd, PollFlags::IN));
-        Token { index, marker: PhantomData }
+    pub fn add_readable(&mut self, fd: impl AsFd) -> Token {
+        self.add_readable_(fd.as_fd())
+    }
+
+    fn add_readable_(&mut self, fd: BorrowedFd) -> Token {
+        let fd: BorrowedFd<'static> = unsafe { transmute(fd) };
+        let idx = self.len;
+        self.poll_fds[idx].write(PollFd::from_borrowed_fd(fd, PollFlags::IN));
+        self.len += 1;
+        Token(idx)
     }
 
     pub fn poll(&mut self) -> io::Result<()> {
-        let events_count = retry_on_intr(|| poll(&mut self.poll_fds, None))?;
+        let events_count = retry_on_intr(|| poll(self.fds_mut(), None))?;
         assert_ne!(events_count, 0);
         Ok(())
     }
 
-    pub fn ready(&mut self, token: Token) -> bool {
-        let revents = self.poll_fds[token.index].revents();
+    pub fn ready(&self, token: Token) -> bool {
+        let revents = self.fds()[token.0].revents();
         assert!(!revents.intersects(PollFlags::NVAL));
         !revents.is_empty()
+    }
+
+    fn fds(&self) -> &[PollFd<'static>] {
+        unsafe {
+            self.poll_fds.get_unchecked(..self.len).assume_init_ref()
+        }
+    }
+
+    fn fds_mut(&mut self) -> &mut [PollFd<'static>] {
+        unsafe {
+            self.poll_fds.get_unchecked_mut(..self.len).assume_init_mut()
+        }
     }
 }
 
 #[derive(Clone, Copy)]
-pub struct Token<'a> {
-    index: usize,
-    marker: PhantomData<BorrowedFd<'a>>
-}
+pub struct Token(usize);
 
 pub enum Waker {
     Eventfd { fd: OwnedFd },

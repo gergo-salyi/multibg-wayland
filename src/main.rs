@@ -29,7 +29,6 @@ use std::{
     fs::{self, read_dir},
     hint::{assert_unchecked, cold_path},
     io::{self, Cursor, stderr, StderrLock, stdout, StdoutLock, Write},
-    marker::PhantomData,
     mem::{ManuallyDrop, MaybeUninit, swap, transmute},
     ops::{Deref, DerefMut, RangeBounds},
     os::{
@@ -177,8 +176,8 @@ fn run() -> Result<(), ()> {
         None
     };
 
-    let conn = Connection::connect_to_env().unwrap();
-    let (globals, mut event_queue) = registry_queue_init(&conn).unwrap();
+    let connection = Connection::connect_to_env().unwrap();
+    let (globals, mut event_queue) = registry_queue_init(&connection).unwrap();
     let qh = event_queue.handle();
 
     let compositor_state = CompositorState::bind(&globals, &qh).unwrap();
@@ -239,8 +238,8 @@ fn run() -> Result<(), ()> {
 
     debug!("Initial wayland roundtrip done. Starting main event loop.");
 
-    let mut poll = Poll::with_capacity(3);
-    let token_wayland = poll.add_readable(&conn);
+    let mut poll = Poll::<3>::new();
+    let token_wayland = poll.add_readable(&connection);
     state.compositor_ctx.subscribe(EventSender::new(tx, waker.clone()));
     let token_compositor = poll.add_readable(&waker);
     let signal_pipe = SignalPipe::new()
@@ -249,12 +248,12 @@ fn run() -> Result<(), ()> {
     let token_signal = signal_pipe.as_ref().map(|pipe| poll.add_readable(pipe));
 
     let mut event_loop = EventLoop {
-        state: &mut state,
-        connection: &conn,
-        event_queue: &mut event_queue,
-        rx: &rx,
-        waker: &waker,
-        signal_pipe: &signal_pipe,
+        state,
+        connection,
+        event_queue,
+        rx,
+        waker,
+        signal_pipe,
         poll,
         token_wayland,
         token_compositor,
@@ -263,20 +262,20 @@ fn run() -> Result<(), ()> {
     event_loop.run()
 }
 
-struct EventLoop<'a> {
-    state: &'a mut State,
-    connection: &'a Connection,
-    event_queue: &'a mut EventQueue<State>,
-    rx: &'a Receiver<WorkspaceVisible>,
-    waker: &'a Waker,
-    signal_pipe: &'a Option<SignalPipe>,
-    poll: Poll<'a>,
-    token_wayland: Token<'a>,
-    token_compositor: Token<'a>,
-    token_signal: Option<Token<'a>>,
+struct EventLoop {
+    state: State,
+    connection: Connection,
+    event_queue: EventQueue<State>,
+    rx: Receiver<WorkspaceVisible>,
+    waker: Arc<Waker>,
+    signal_pipe: Option<SignalPipe>,
+    poll: Poll<3>,
+    token_wayland: Token,
+    token_compositor: Token,
+    token_signal: Option<Token>,
 }
 
-impl EventLoop<'_> {
+impl EventLoop {
     fn run(&mut self) -> Result<(), ()> {
         loop {
             if let Some(result) = self.cycle() {
@@ -286,7 +285,7 @@ impl EventLoop<'_> {
     }
 
     fn cycle(&mut self) -> Option<Result<(), ()>> {
-        flush_blocking(self.connection);
+        flush_blocking(&self.connection);
         let read_guard = self.ensure_prepare_read();
         self.poll.poll().expect("Main event loop poll failed");
         if self.poll.ready(self.token_wayland) {
@@ -324,7 +323,7 @@ impl EventLoop<'_> {
             if let Some(guard) = self.event_queue.prepare_read() {
                 return guard
             }
-            self.event_queue.dispatch_pending(self.state)
+            self.event_queue.dispatch_pending(&mut self.state)
                 .expect("Failed to dispatch pending Wayland events");
         }
     }
@@ -332,7 +331,7 @@ impl EventLoop<'_> {
     fn handle_wayland_event(&mut self, read_guard: ReadEventsGuard) {
         match read_guard.read() {
             Ok(_) => {
-                self.event_queue.dispatch_pending(self.state)
+                self.event_queue.dispatch_pending(&mut self.state)
                     .expect("Failed to dispatch pending Wayland events");
             },
             Err(error) => {
