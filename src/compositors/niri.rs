@@ -37,7 +37,7 @@ impl CompositorCtx for Niri {
         });
     }
 
-    fn set_wallpaper(&mut self, bg_layer: &mut BackgroundLayer) {
+    fn set_wallpaper(&mut self, bg_layer: &mut BgLayer) {
         let mut conn = self.connect();
         let workspaces = conn.workspaces();
         if let Some(workspace) = workspaces.into_iter()
@@ -45,7 +45,7 @@ impl CompositorCtx for Niri {
                 && *w.output.as_ref().unwrap() == *bg_layer.output_name
             )
         {
-            bg_layer.draw_workspace_bg(
+            bg_layer.set_wallpaper(
                 &workspace.name
                     .unwrap_or_else(|| format!("{}", workspace.idx).into()),
                 workspace.idx.into(),
@@ -53,7 +53,7 @@ impl CompositorCtx for Niri {
         }
     }
 
-    fn set_all_wallpapers(&mut self, bg_layers: &mut [BackgroundLayer]) {
+    fn set_all_wallpapers(&mut self, bg_layers: &mut [BgLayer]) {
         let mut conn = self.connect();
         let workspaces = conn.workspaces();
         workspaces.into_iter().filter(|w| w.is_active).for_each(|workspace|
@@ -86,7 +86,7 @@ impl CompositorCtx for Niri {
         self.subscriber.insert(subscriber).conn.buf_sock.as_fd()
     }
 
-    fn read_set_wallpapers(&mut self, bg_layers: &mut [BackgroundLayer]) {
+    fn read_set_wallpapers(&mut self, bg_layers: &mut [BgLayer]) {
         self.subscriber.as_mut().unwrap().read_set_wallpapers(bg_layers)
     }
 }
@@ -159,7 +159,7 @@ impl Subscriber {
         Self { conn, workspaces }
     }
 
-    fn read_set_wallpapers(&mut self, bg_layers: &mut [BackgroundLayer]) {
+    fn read_set_wallpapers(&mut self, bg_layers: &mut [BgLayer]) {
         self.conn.buf_sock.recv_nonblock().unwrap();
         while let Some(bytes) = next_bytes(&mut self.conn.buf_sock.read_buf) {
             let event: Event = serde_json::from_slice(bytes).unwrap();

@@ -41,17 +41,17 @@ impl CompositorCtx for Sway {
         });
     }
 
-    fn set_wallpaper(&mut self, bg_layer: &mut BackgroundLayer) {
+    fn set_wallpaper(&mut self, bg_layer: &mut BgLayer) {
         let mut conn = self.connect();
         let workspaces = conn.workspaces();
         if let Some(workspace) = workspaces.into_iter()
             .find(|w| w.visible && *w.output == *bg_layer.output_name)
         {
-            bg_layer.draw_workspace_bg(&workspace.name, workspace.num);
+            bg_layer.set_wallpaper(&workspace.name, workspace.num);
         }
     }
 
-    fn set_all_wallpapers(&mut self, bg_layers: &mut [BackgroundLayer]) {
+    fn set_all_wallpapers(&mut self, bg_layers: &mut [BgLayer]) {
         let mut conn = self.connect();
         let workspaces = conn.workspaces();
         workspaces.into_iter().filter(|w| w.visible).for_each(|workspace|
@@ -78,7 +78,7 @@ impl CompositorCtx for Sway {
         self.subscriber.insert(conn).buf_sock.as_fd()
     }
 
-    fn read_set_wallpapers(&mut self, bg_layers: &mut [BackgroundLayer]) {
+    fn read_set_wallpapers(&mut self, bg_layers: &mut [BgLayer]) {
         self.subscriber.as_mut().unwrap().read_set_wallpapers(bg_layers)
     }
 }
@@ -146,7 +146,7 @@ impl Connection {
         while next_reply(&mut self.buf_sock.read_buf).is_some() {}
     }
 
-    fn read_set_wallpapers(&mut self, bg_layers: &mut [BackgroundLayer]) {
+    fn read_set_wallpapers(&mut self, bg_layers: &mut [BgLayer]) {
         self.buf_sock.recv_nonblock().unwrap();
         while let Some(reply) = next_reply(&mut self.buf_sock.read_buf) {
             if reply.typ != EVENT_WORKSPACE {

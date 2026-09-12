@@ -54,20 +54,20 @@ impl CompositorCtx for Hyprland {
         }
     }
 
-    fn set_wallpaper(&mut self, bg_layer: &mut BackgroundLayer) {
+    fn set_wallpaper(&mut self, bg_layer: &mut BgLayer) {
         let mut buf = Vec::new();
         let monitors = self.connect_hyprctl_sock().monitors(&mut buf);
         if let Some(monitor) = monitors.into_iter()
             .find(|monitor| *monitor.name == *bg_layer.output_name)
         {
-            bg_layer.draw_workspace_bg(
+            bg_layer.set_wallpaper(
                 &monitor.active_workspace.name,
                 monitor.active_workspace.id.unwrap_or(-1),
             );
         }
     }
 
-    fn set_all_wallpapers(&mut self, bg_layers: &mut [BackgroundLayer]) {
+    fn set_all_wallpapers(&mut self, bg_layers: &mut [BgLayer]) {
         let mut buf = Vec::new();
         let monitors = self.connect_hyprctl_sock().monitors(&mut buf);
         monitors.into_iter().for_each(|monitor|
@@ -94,7 +94,7 @@ impl CompositorCtx for Hyprland {
         self.subscriber.insert(subscriber).buf_sock.as_fd()
     }
 
-    fn read_set_wallpapers(&mut self, bg_layers: &mut [BackgroundLayer]) {
+    fn read_set_wallpapers(&mut self, bg_layers: &mut [BgLayer]) {
         self.subscriber.as_mut().unwrap().read_set_wallpapers(bg_layers)
     }
 }
@@ -161,7 +161,7 @@ impl Subscriber {
         }
     }
 
-    fn read_set_wallpapers(&mut self, bg_layers: &mut [BackgroundLayer]) {
+    fn read_set_wallpapers(&mut self, bg_layers: &mut [BgLayer]) {
         self.buf_sock.recv_nonblock().unwrap();
         while let Some(event) = next_event(&mut self.buf_sock.read_buf) {
             if !self.has_workspacev2 && event.name == b"workspace" {

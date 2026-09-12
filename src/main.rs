@@ -93,7 +93,7 @@ use crate::{
     memchr::{memchr, memmem},
     poll::{pipe_cloexec_nonblock, Poll, Token},
     signal::SignalPipe,
-    wayland::{BackgroundLayer, set_wallpaper},
+    wayland::{BgLayer, set_wallpaper},
 };
 
 const PKG_NAME: &str = env!("CARGO_PKG_NAME");
@@ -107,7 +107,7 @@ struct State {
     layer_shell: LayerShell,
     viewporter: WpViewporter,
     wallpaper_dir: Option<Box<Path>>,
-    background_layers: Vec<BackgroundLayer>,
+    bg_layers: Vec<BgLayer>,
     compositor_ctx: Box<dyn CompositorCtx>,
     cpu_features: CpuFeatures,
     color_transform: Option<ColorTransform>,
@@ -198,7 +198,7 @@ fn run() -> Result<(), ()> {
         layer_shell,
         viewporter,
         wallpaper_dir: cli.wallpaper_dir,
-        background_layers: Vec::new(),
+        bg_layers: Vec::new(),
         compositor_ctx,
         cpu_features,
         color_transform,
@@ -314,7 +314,7 @@ impl EventLoop {
 
     fn handle_compositor_ipc_event(&mut self) {
         self.state.compositor_ctx.read_set_wallpapers(
-            &mut self.state.background_layers
+            &mut self.state.bg_layers
         )
     }
 }

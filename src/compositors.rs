@@ -75,11 +75,11 @@ impl Compositor {
 
 pub trait CompositorCtx {
     fn list_outputs(&mut self);
-    fn set_wallpaper(&mut self, bg_layer: &mut BackgroundLayer);
-    fn set_all_wallpapers(&mut self, bg_layers: &mut [BackgroundLayer]);
+    fn set_wallpaper(&mut self, bg_layer: &mut BgLayer);
+    fn set_all_wallpapers(&mut self, bg_layers: &mut [BgLayer]);
     fn make_model_serial(&mut self, output: &str) -> Option<Box<str>>;
     fn subscribe(&mut self) -> BorrowedFd<'_>;
-    fn read_set_wallpapers(&mut self, bg_layers: &mut [BackgroundLayer]);
+    fn read_set_wallpapers(&mut self, bg_layers: &mut [BgLayer]);
 }
 
 fn make_model_serial(
