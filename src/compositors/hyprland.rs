@@ -33,15 +33,15 @@ impl Hyprland {
         }
     }
 
-    fn connect_hyprctl_sock(&self) -> HyprctlConn {
-        HyprctlConn::connect(&self.hyprctl_sock_path)
+    fn monitors<'a>(&self, buf: &'a mut Vec<u8>) -> Vec<Monitor<'a>> {
+        monitors(&self.hyprctl_sock_path, buf)
     }
 }
 
 impl CompositorCtx for Hyprland {
     fn list_outputs(&mut self) {
         let mut buf = Vec::new();
-        let monitors = self.connect_hyprctl_sock().monitors(&mut buf);
+        let monitors = self.monitors(&mut buf);
         let mut stdout_lock = stdout().lock();
         for monitor in monitors {
             print_output(
@@ -55,9 +55,7 @@ impl CompositorCtx for Hyprland {
     }
 
     fn set_wallpaper(&mut self, bg_layer: &mut BgLayer) {
-        let mut buf = Vec::new();
-        let monitors = self.connect_hyprctl_sock().monitors(&mut buf);
-        if let Some(monitor) = monitors.into_iter()
+        if let Some(monitor) = self.monitors(&mut Vec::new()).into_iter()
             .find(|monitor| *monitor.name == *bg_layer.output_name)
         {
             bg_layer.set_wallpaper(
@@ -68,9 +66,7 @@ impl CompositorCtx for Hyprland {
     }
 
     fn set_all_wallpapers(&mut self, bg_layers: &mut [BgLayer]) {
-        let mut buf = Vec::new();
-        let monitors = self.connect_hyprctl_sock().monitors(&mut buf);
-        monitors.into_iter().for_each(|monitor|
+        self.monitors(&mut Vec::new()).into_iter().for_each(|monitor|
             set_wallpaper(
                 bg_layers,
                 &monitor.name,
@@ -82,8 +78,7 @@ impl CompositorCtx for Hyprland {
 
     fn make_model_serial(&mut self, output: &str) -> Option<Box<str>> {
         let mut buf = Vec::new();
-        let monitors = self.connect_hyprctl_sock().monitors(&mut buf);
-        let monitor = monitors.into_iter()
+        let monitor = self.monitors(&mut buf).into_iter()
             .find(|monitor| monitor.name == output).unwrap();
         make_model_serial(&monitor.make, &monitor.model, &monitor.serial)
     }
@@ -101,42 +96,36 @@ impl CompositorCtx for Hyprland {
 
 // This socket .socket.sock for hyprctl-like requests
 // only allows one round trip with a single or batched commands
-struct HyprctlConn {
-    socket: OwnedFd,
-}
-
-impl HyprctlConn {
-    fn connect(path: &Path) -> Self {
-        let socket = connect_unix(path).unwrap();
-        Self { socket }
-    }
-
-    fn monitors(self, buf: &mut Vec<u8>) -> Vec<Monitor<'_>> {
-        let mut request = b"j/monitors".as_slice();
-        while !request.is_empty() {
-            match send(&self.socket, request, SendFlags::NOSIGNAL) {
-                Ok(0) => panic!(),
-                Ok(count) => request = &request[count..],
-                Err(Errno::INTR) => (),
-                Err(Errno::PIPE) => panic!("Hyprland IPC socket disconnected"),
-                Err(e) => panic!("Failed to send to Hyprland IPC socket: {e}"),
-            }
+fn monitors<'a>(
+    hyprclt_sock_path: &Path,
+    buf: &'a mut Vec<u8>,
+) -> Vec<Monitor<'a>> {
+    buf.clear();
+    buf.reserve(2000);
+    let socket = connect_unix(hyprclt_sock_path).unwrap();
+    let mut request = b"j/monitors".as_slice();
+    while !request.is_empty() {
+        match send(&socket, request, SendFlags::NOSIGNAL) {
+            Ok(0) => panic!(),
+            Ok(count) => request = &request[count..],
+            Err(Errno::INTR) => (),
+            Err(Errno::PIPE) => panic!("Hyprland IPC socket disconnected"),
+            Err(e) => panic!("Failed to send to Hyprland IPC socket: {e}"),
         }
-        buf.clear();
-        buf.reserve(2000);
-        loop {
-            if buf.len() == buf.capacity() {
-                buf.reserve(buf.capacity());
-            }
-            match read(&self.socket, spare_capacity(buf)) {
-                Ok(0) => break,
-                Ok(_) | Err(Errno::INTR) => (),
-                Err(e) => panic!("Failed to read Hyprland IPC socket: {e}"),
-            }
-        }
-        serde_json::from_slice(buf)
-            .expect("Failed to parse Hyprland monitors response")
     }
+    loop {
+        if buf.len() == buf.capacity() {
+            buf.reserve(buf.capacity());
+        }
+        match read(&socket, spare_capacity(buf)) {
+            Ok(0) => break,
+            Ok(_) | Err(Errno::INTR) => (),
+            Err(e) => panic!("Failed to read Hyprland IPC socket: {e}"),
+        }
+    }
+    drop(socket);
+    serde_json::from_slice(buf)
+        .expect("Failed to parse Hyprland monitors response")
 }
 
 struct Subscriber {
@@ -149,8 +138,7 @@ struct Subscriber {
 impl Subscriber {
     fn new(ctx: &Hyprland) -> Self {
         let buf_sock = BufSock::connect(&ctx.event_sock_path).unwrap();
-        let active_monitor = ctx.connect_hyprctl_sock()
-            .monitors(&mut Vec::new()).into_iter()
+        let active_monitor = ctx.monitors(&mut Vec::new()).into_iter()
             .find(|monitor| monitor.focused).unwrap()
             .name.into_owned();
         Self {
@@ -204,8 +192,7 @@ impl Subscriber {
                 || event.name == b"renameworkspace"
             {
                 let mut buf = Vec::new();
-                let monitors = HyprctlConn::connect(&self.hyprctl_sock_path)
-                    .monitors(&mut buf);
+                let monitors = monitors(&self.hyprctl_sock_path, &mut buf);
                 for monitor in monitors {
                     if monitor.focused
                         && self.active_monitor != monitor.name.as_ref()
