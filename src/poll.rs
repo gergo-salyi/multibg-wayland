@@ -3,7 +3,7 @@ use super::*;
 use rustix::{
     event::{PollFd, PollFlags, poll},
     fs::{fcntl_setfl, OFlags},
-    io::{Errno, fcntl_setfd, FdFlags, read, retry_on_intr, write},
+    io::{fcntl_setfd, FdFlags, retry_on_intr},
     pipe::pipe,
 };
 
@@ -60,6 +60,32 @@ impl<const N: usize> Poll<N> {
 #[derive(Clone, Copy)]
 pub struct Token(usize);
 
+pub fn pipe_cloexec_nonblock() -> io::Result<(OwnedFd, OwnedFd)> {
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "dragonfly",
+        target_os = "illumos",
+        target_os = "redox",
+    ))] {
+        use rustix::pipe::{PipeFlags, pipe_with};
+        if let Ok(ret) = pipe_with(PipeFlags::CLOEXEC | PipeFlags::NONBLOCK) {
+            return Ok(ret)
+        }
+    }
+    let (read_half, write_half) = pipe()?;
+    fcntl_setfd(&read_half, FdFlags::CLOEXEC)?;
+    fcntl_setfd(&write_half, FdFlags::CLOEXEC)?;
+    fcntl_setfl(&read_half, OFlags::NONBLOCK)?;
+    fcntl_setfl(&write_half, OFlags::NONBLOCK)?;
+    Ok((read_half, write_half))
+}
+
+// Leftover for if a new compositor IPC would need its own thread again
+/*
 pub enum Waker {
     Eventfd { fd: OwnedFd },
     Pipe { read_half: OwnedFd, write_half: OwnedFd },
@@ -117,30 +143,6 @@ impl AsFd for Waker {
     }
 }
 
-pub fn pipe_cloexec_nonblock() -> io::Result<(OwnedFd, OwnedFd)> {
-    #[cfg(any(
-        target_os = "linux",
-        target_os = "android",
-        target_os = "freebsd",
-        target_os = "netbsd",
-        target_os = "openbsd",
-        target_os = "dragonfly",
-        target_os = "illumos",
-        target_os = "redox",
-    ))] {
-        use rustix::pipe::{PipeFlags, pipe_with};
-        if let Ok(ret) = pipe_with(PipeFlags::CLOEXEC | PipeFlags::NONBLOCK) {
-            return Ok(ret)
-        }
-    }
-    let (read_half, write_half) = pipe()?;
-    fcntl_setfd(&read_half, FdFlags::CLOEXEC)?;
-    fcntl_setfd(&write_half, FdFlags::CLOEXEC)?;
-    fcntl_setfl(&read_half, OFlags::NONBLOCK)?;
-    fcntl_setfl(&write_half, OFlags::NONBLOCK)?;
-    Ok((read_half, write_half))
-}
-
 fn clear_pipe(read_half: impl AsFd) -> Result<(), Errno> {
     const LEN: usize = 256;
     let mut buf = [MaybeUninit::<u8>::uninit(); LEN];
@@ -160,3 +162,4 @@ fn assert_ok_or_wouldblock<T>(result: Result<T, Errno>) {
         Err(e) => panic!("{e}"),
     }
 }
+*/

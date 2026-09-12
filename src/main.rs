@@ -43,9 +43,9 @@ use std::{
     sync::{
         Arc, Mutex,
         atomic::{AtomicI32, Ordering::Relaxed},
-        mpsc::{self, channel, Receiver, Sender},
+        mpsc,
     },
-    thread::{self, JoinHandle},
+    thread,
     time::UNIX_EPOCH,
 };
 
@@ -74,7 +74,7 @@ use smithay_client_toolkit::reexports::protocols
 use crate::{
     buffer::Buf,
     cli::Cli,
-    compositors::{Compositor, CompositorCtx, EventSender, WorkspaceVisible},
+    compositors::{Compositor, CompositorCtx},
     cpu::CpuFeatures,
     gpu::{
         DRM_FORMAT_XRGB8888, fmt_modifier,
@@ -91,9 +91,9 @@ use crate::{
         quote_bytes, quote_prefixed_bytes, quote_path, quote_str,
     },
     memchr::{memchr, memmem},
-    poll::{pipe_cloexec_nonblock, Poll, Token, Waker},
+    poll::{pipe_cloexec_nonblock, Poll, Token},
     signal::SignalPipe,
-    wayland::BackgroundLayer,
+    wayland::{BackgroundLayer, set_wallpaper},
 };
 
 const PKG_NAME: &str = env!("CARGO_PKG_NAME");
@@ -113,30 +113,6 @@ struct State {
     color_transform: Option<ColorTransform>,
     dmabuf_state: DmabufState,
     gpu: Option<Gpu>,
-}
-
-impl State {
-    fn handle_visible_workspace(&mut self, workspace: WorkspaceVisible) {
-        // Find the background layer that of the output where the workspace is
-        if let Some(affected_bg_layer) = self.background_layers.iter_mut()
-            .find(|bg_layer| *bg_layer.output_name == *workspace.output)
-        {
-            affected_bg_layer.draw_workspace_bg(
-                &workspace.workspace_name,
-                workspace.workspace_number,
-            );
-        } else {
-            error!(
-                "Workspace '{}' is on an unknown output '{}', \
-                known outputs were: {}",
-                workspace.workspace_name,
-                workspace.output,
-                self.background_layers.iter()
-                    .map(|bg_layer| &*bg_layer.output_name)
-                    .collect::<Vec<_>>().join(", ")
-            );
-        }
-    }
 }
 
 fn main() -> ExitCode {
@@ -214,10 +190,6 @@ fn run() -> Result<(), ()> {
         warn!("Option --pixelformat is deprecated an ignored");
     }
 
-    // Sync tools for sway ipc tasks
-    let (tx, rx) = channel();
-    let waker = Arc::new(Waker::new().unwrap());
-
     let mut state = State {
         compositor_state,
         registry_state,
@@ -235,13 +207,13 @@ fn run() -> Result<(), ()> {
     };
 
     event_queue.roundtrip(&mut state).unwrap();
-
     debug!("Initial wayland roundtrip done. Starting main event loop.");
 
     let mut poll = Poll::<3>::new();
     let token_wayland = poll.add_readable(&connection);
-    state.compositor_ctx.subscribe(EventSender::new(tx, waker.clone()));
-    let token_compositor = poll.add_readable(&waker);
+    let token_compositor = poll.add_readable(
+        state.compositor_ctx.subscribe()
+    );
     let signal_pipe = SignalPipe::new()
         .map_err(|e| error!("Failed to set up signal handling: {e}"))
         .ok();
@@ -251,8 +223,6 @@ fn run() -> Result<(), ()> {
         state,
         connection,
         event_queue,
-        rx,
-        waker,
         signal_pipe,
         poll,
         token_wayland,
@@ -266,8 +236,6 @@ struct EventLoop {
     state: State,
     connection: Connection,
     event_queue: EventQueue<State>,
-    rx: Receiver<WorkspaceVisible>,
-    waker: Arc<Waker>,
     signal_pipe: Option<SignalPipe>,
     poll: Poll<3>,
     token_wayland: Token,
@@ -294,8 +262,7 @@ impl EventLoop {
             drop(read_guard);
         }
         if self.poll.ready(self.token_compositor) {
-            self.waker.read();
-            self.handle_sway_event();
+            self.handle_compositor_ipc_event();
         }
         if let Some(token_signal) = self.token_signal
             && self.poll.ready(token_signal)
@@ -345,10 +312,10 @@ impl EventLoop {
         }
     }
 
-    fn handle_sway_event(&mut self) {
-        while let Ok(workspace) = self.rx.try_recv() {
-            self.state.handle_visible_workspace(workspace);
-        }
+    fn handle_compositor_ipc_event(&mut self) {
+        self.state.compositor_ctx.read_set_wallpapers(
+            &mut self.state.background_layers
+        )
     }
 }
 

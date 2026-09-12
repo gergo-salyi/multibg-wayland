@@ -5,7 +5,7 @@ use super::*;
 pub struct Hyprland {
     hyprctl_sock_path: Box<Path>,
     event_sock_path: Box<Path>,
-    subscribe_task: Option<JoinHandle<()>>,
+    subscriber: Option<Subscriber>,
 }
 
 impl Hyprland {
@@ -29,16 +29,12 @@ impl Hyprland {
         Self {
             hyprctl_sock_path,
             event_sock_path,
-            subscribe_task: None,
+            subscriber: None,
         }
     }
 
     fn connect_hyprctl_sock(&self) -> HyprctlConn {
         HyprctlConn::connect(&self.hyprctl_sock_path)
-    }
-
-    fn subscriber(&self, event_sender: EventSender) -> Subscriber {
-        Subscriber::new(self, event_sender)
     }
 }
 
@@ -58,22 +54,48 @@ impl CompositorCtx for Hyprland {
         }
     }
 
-    fn visible_workspace(&mut self, output: &str) -> Option<WorkspaceVisible> {
-        self.connect_hyprctl_sock().visible_workspace(output)
+    fn set_wallpaper(&mut self, bg_layer: &mut BackgroundLayer) {
+        let mut buf = Vec::new();
+        let monitors = self.connect_hyprctl_sock().monitors(&mut buf);
+        if let Some(monitor) = monitors.into_iter()
+            .find(|monitor| *monitor.name == *bg_layer.output_name)
+        {
+            bg_layer.draw_workspace_bg(
+                &monitor.active_workspace.name,
+                monitor.active_workspace.id.unwrap_or(-1),
+            );
+        }
     }
 
-    fn visible_workspaces(&mut self) -> Vec<WorkspaceVisible> {
-        self.connect_hyprctl_sock().visible_workspaces()
+    fn set_all_wallpapers(&mut self, bg_layers: &mut [BackgroundLayer]) {
+        let mut buf = Vec::new();
+        let monitors = self.connect_hyprctl_sock().monitors(&mut buf);
+        monitors.into_iter().for_each(|monitor|
+            set_wallpaper(
+                bg_layers,
+                &monitor.name,
+                &monitor.active_workspace.name,
+                monitor.active_workspace.id.unwrap_or(-1),
+            )
+        )
     }
 
     fn make_model_serial(&mut self, output: &str) -> Option<Box<str>> {
-        self.connect_hyprctl_sock().make_model_serial(output)
+        let mut buf = Vec::new();
+        let monitors = self.connect_hyprctl_sock().monitors(&mut buf);
+        let monitor = monitors.into_iter()
+            .find(|monitor| monitor.name == output).unwrap();
+        make_model_serial(&monitor.make, &monitor.model, &monitor.serial)
     }
 
-    fn subscribe(&mut self, event_sender: EventSender) {
-        assert!(self.subscribe_task.is_none());
-        let join_handle = self.subscriber(event_sender).spawn();
-        self.subscribe_task = Some(join_handle);
+    fn subscribe(&mut self) -> BorrowedFd<'_> {
+        assert!(self.subscriber.is_none());
+        let subscriber = Subscriber::new(self);
+        self.subscriber.insert(subscriber).buf_sock.as_fd()
+    }
+
+    fn read_set_wallpapers(&mut self, bg_layers: &mut [BackgroundLayer]) {
+        self.subscriber.as_mut().unwrap().read_set_wallpapers(bg_layers)
     }
 }
 
@@ -87,30 +109,6 @@ impl HyprctlConn {
     fn connect(path: &Path) -> Self {
         let socket = connect_unix(path).unwrap();
         Self { socket }
-    }
-
-    fn visible_workspace(self, output: &str) -> Option<WorkspaceVisible> {
-        let mut buf = Vec::new();
-        let monitors = self.monitors(&mut buf);
-        monitors.into_iter()
-            .find(|monitor| monitor.name == output)
-            .map(Monitor::into_visible_workspace)
-    }
-
-    fn visible_workspaces(self) -> Vec<WorkspaceVisible> {
-        let mut buf = Vec::new();
-        let monitors = self.monitors(&mut buf);
-        monitors.into_iter()
-            .map(Monitor::into_visible_workspace)
-            .collect()
-    }
-
-    fn make_model_serial(self, output: &str) -> Option<Box<str>> {
-        let mut buf = Vec::new();
-        let monitors = self.monitors(&mut buf);
-        let monitor = monitors.into_iter()
-            .find(|monitor| monitor.name == output).unwrap();
-        make_model_serial(&monitor.make, &monitor.model, &monitor.serial)
     }
 
     fn monitors(self, buf: &mut Vec<u8>) -> Vec<Monitor<'_>> {
@@ -132,8 +130,7 @@ impl HyprctlConn {
             }
             match read(&self.socket, spare_capacity(buf)) {
                 Ok(0) => break,
-                Ok(_) => (),
-                Err(Errno::INTR) => (),
+                Ok(_) | Err(Errno::INTR) => (),
                 Err(e) => panic!("Failed to read Hyprland IPC socket: {e}"),
             }
         }
@@ -143,129 +140,105 @@ impl HyprctlConn {
 }
 
 struct Subscriber {
-    conn: EventConn,
-    event_sender: EventSender,
-    active_monitor: Box<str>,
+    buf_sock: BufSock,
+    active_monitor: String,
     has_workspacev2: bool,
     hyprctl_sock_path: Box<Path>,
 }
 
 impl Subscriber {
-    fn new(ctx: &Hyprland, event_sender: EventSender) -> Self {
-        let conn = EventConn::connect(&ctx.event_sock_path);
+    fn new(ctx: &Hyprland) -> Self {
+        let buf_sock = BufSock::connect(&ctx.event_sock_path).unwrap();
         let active_monitor = ctx.connect_hyprctl_sock()
             .monitors(&mut Vec::new()).into_iter()
             .find(|monitor| monitor.focused).unwrap()
-            .name.into_owned().into_boxed_str();
+            .name.into_owned();
         Self {
-            conn,
-            event_sender,
+            buf_sock,
             active_monitor,
             has_workspacev2: false,
             hyprctl_sock_path: ctx.hyprctl_sock_path.clone(),
         }
     }
 
-    fn spawn(mut self) -> JoinHandle<()> {
-        thread::Builder::new()
-            .name(String::from("hyprland-conn"))
-            .spawn(move || loop {
-                self.cycle();
-            }).unwrap()
-    }
-
-    fn cycle(&mut self) {
-        let event = self.conn.recv();
-        if !self.has_workspacev2 && event.name == b"workspace" {
-            self.event_sender.send(WorkspaceVisible {
-                output: String::from(self.active_monitor.as_ref()),
-                workspace_name: String::from_utf8(event.data.to_vec()).unwrap(),
-                workspace_number: -1,
-            });
-        } else if event.name == b"workspacev2" {
-            // This is a bit hacky to detect support for "workspacev2"
-            // events here, as we might got "workspace" and sent a
-            // { workspace_number: -1 } before we got here.
-            // But it shouldn't really matter, it will get corrected
-            // by sending a duplicate now and setting has_workspacev2
-            self.has_workspacev2 = true;
-            let comma_pos = memchr(event.data, b',').unwrap();
-            let workspace_number = str::from_utf8(
-                &event.data[..comma_pos]
-            ).unwrap().parse().unwrap();
-            let workspace_name = String::from_utf8(
-                event.data[comma_pos + 1..].to_vec()
-            ).unwrap();
-            self.event_sender.send(WorkspaceVisible {
-                output: String::from(self.active_monitor.as_ref()),
-                workspace_name,
-                workspace_number,
-            });
-        } else if event.name == b"focusedmon" {
-            let comma_pos = memchr(event.data, b',').unwrap();
-            let monname = &event.data[..comma_pos];
-            self.active_monitor = Box::from(
-                str::from_utf8(monname).unwrap()
-            );
-        } else if event.name == b"moveworkspace"
-            || event.name == b"renameworkspace"
-        {
-            let mut buf = Vec::new();
-            let monitors = HyprctlConn::connect(&self.hyprctl_sock_path)
-                .monitors(&mut buf);
-            for monitor in monitors {
-                if monitor.focused {
-                    self.active_monitor = Box::from(monitor.name.as_ref());
+    fn read_set_wallpapers(&mut self, bg_layers: &mut [BackgroundLayer]) {
+        self.buf_sock.recv_nonblock().unwrap();
+        while let Some(event) = next_event(&mut self.buf_sock.read_buf) {
+            if !self.has_workspacev2 && event.name == b"workspace" {
+                set_wallpaper(
+                    bg_layers,
+                    &self.active_monitor,
+                    str::from_utf8(event.data).unwrap(),
+                    -1,
+                );
+            } else if event.name == b"workspacev2" {
+                // This is a bit hacky to detect support for "workspacev2"
+                // events here, as we might got "workspace" and sent a
+                // { workspace_number: -1 } before we got here.
+                // But it shouldn't really matter, it will get corrected
+                // by sending a duplicate now and setting has_workspacev2
+                self.has_workspacev2 = true;
+                let comma_pos = memchr(event.data, b',').unwrap();
+                let workspace_number = str::from_utf8(
+                    &event.data[..comma_pos]
+                ).unwrap().parse().unwrap();
+                let workspace_name = str::from_utf8(
+                    &event.data[comma_pos + 1..]
+                ).unwrap();
+                set_wallpaper(
+                    bg_layers,
+                    &self.active_monitor,
+                    workspace_name,
+                    workspace_number,
+                );
+            } else if event.name == b"focusedmon" {
+                let comma_pos = memchr(event.data, b',').unwrap();
+                let monname = &event.data[..comma_pos];
+                if self.active_monitor.as_bytes() != monname {
+                    self.active_monitor.clear();
+                    self.active_monitor.push_str(
+                        str::from_utf8(monname).unwrap()
+                    );
                 }
-                self.event_sender.send(monitor.into_visible_workspace());
+            } else if event.name == b"moveworkspace"
+                || event.name == b"renameworkspace"
+            {
+                let mut buf = Vec::new();
+                let monitors = HyprctlConn::connect(&self.hyprctl_sock_path)
+                    .monitors(&mut buf);
+                for monitor in monitors {
+                    if monitor.focused
+                        && self.active_monitor != monitor.name.as_ref()
+                    {
+                        self.active_monitor.clear();
+                        self.active_monitor.push_str(monitor.name.as_ref());
+                    }
+                    set_wallpaper(
+                        bg_layers,
+                        monitor.name.as_ref(),
+                        monitor.active_workspace.name.as_ref(),
+                        monitor.active_workspace.id.unwrap_or(-1),
+                    );
+                }
             }
         }
     }
 }
 
-struct EventConn {
-    socket: OwnedFd,
-    read_buf: ReadBuf,
-}
+fn next_event(read_buf: &mut ReadBuf) -> Option<Event<'_>> {
+    let buf = &read_buf.buf;
+    let mut parsed_len = read_buf.parsed_len;
 
-impl EventConn {
-    fn connect(path: &Path) -> Self {
-        let socket = connect_unix(path).unwrap();
-        Self {
-            socket,
-            read_buf: ReadBuf::new(),
-        }
-    }
+    let idx = memmem(&buf[parsed_len..], b">>")?;
+    let name = &buf[parsed_len..][..idx];
+    parsed_len += idx + 2;
 
-    fn recv(&mut self) -> Event<'_> {
-        loop {
-            if let Some(event) = self.take_event() {
-                return event
-            }
-            match read(&self.socket, self.read_buf.spare_capacity()) {
-                Ok(0) => panic!("Sway IPC socket disconnected"),
-                Ok(_) => (),
-                Err(Errno::INTR) => (),
-                Err(e) => panic!("Failed to read Sway IPC socket: {e}"),
-            }
-        }
-    }
+    let idx = memchr(&buf[parsed_len..], b'\n')?;
+    let data = &buf[parsed_len..][..idx];
+    parsed_len += idx + 1;
 
-    fn take_event(&mut self) -> Option<Event<'_>> {
-        let buf = &self.read_buf.buf;
-        let mut parsed_len = self.read_buf.parsed_len;
-
-        let idx = memmem(&buf[parsed_len..], b">>")?;
-        let name = &buf[parsed_len..][..idx];
-        parsed_len += idx + 2;
-
-        let idx = memchr(&buf[parsed_len..], b'\n')?;
-        let data = &buf[parsed_len..][..idx];
-        parsed_len += idx + 1;
-
-        self.read_buf.parsed_len = parsed_len;
-        Some(Event { name, data })
-    }
+    read_buf.parsed_len = parsed_len;
+    Some(Event { name, data })
 }
 
 #[derive(Deserialize)]
@@ -281,16 +254,6 @@ struct Monitor<'a> {
     #[serde(borrow, rename = "activeWorkspace")]
     active_workspace: ActiveWorkspace<'a>,
     focused: bool,
-}
-
-impl Monitor<'_> {
-    fn into_visible_workspace(self) -> WorkspaceVisible {
-        WorkspaceVisible {
-            output: self.name.into_owned(),
-            workspace_name: self.active_workspace.name.into_owned(),
-            workspace_number: self.active_workspace.id.unwrap_or(-1),
-        }
-    }
 }
 
 #[derive(Deserialize)]

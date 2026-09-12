@@ -8,7 +8,7 @@ use rustix::{
     buffer::{SpareCapacity, spare_capacity},
     io::{Errno, read},
     net::{
-        AddressFamily, connect, send, SendFlags,
+        AddressFamily, connect, recv, RecvFlags, send, SendFlags,
         socket_with, SocketAddrUnix, SocketFlags, SocketType,
     },
 };
@@ -75,34 +75,11 @@ impl Compositor {
 
 pub trait CompositorCtx {
     fn list_outputs(&mut self);
-    fn visible_workspace(&mut self, output: &str) -> Option<WorkspaceVisible>;
-    fn visible_workspaces(&mut self) -> Vec<WorkspaceVisible>;
+    fn set_wallpaper(&mut self, bg_layer: &mut BackgroundLayer);
+    fn set_all_wallpapers(&mut self, bg_layers: &mut [BackgroundLayer]);
     fn make_model_serial(&mut self, output: &str) -> Option<Box<str>>;
-    fn subscribe(&mut self, event_sender: EventSender);
-}
-
-/// abstract 'sending back workspace change events'
-pub struct EventSender {
-    tx: Sender<WorkspaceVisible>,
-    waker: Arc<Waker>,
-}
-
-impl EventSender {
-    pub fn new(tx: Sender<WorkspaceVisible>, waker: Arc<Waker>) -> Self {
-        EventSender { tx, waker }
-    }
-
-    fn send(&self, workspace: WorkspaceVisible) {
-        self.tx.send(workspace).unwrap();
-        self.waker.wake();
-    }
-}
-
-#[derive(Debug)]
-pub struct WorkspaceVisible {
-    pub output: String,
-    pub workspace_name: String,
-    pub workspace_number: i32,
+    fn subscribe(&mut self) -> BorrowedFd<'_>;
+    fn read_set_wallpapers(&mut self, bg_layers: &mut [BackgroundLayer]);
 }
 
 fn make_model_serial(
@@ -208,4 +185,68 @@ impl ReadBuf {
             self.buf.reserve_exact(capacity / 2);
         }
     }
+}
+
+struct BufSock {
+    socket: OwnedFd,
+    read_buf: ReadBuf,
+}
+
+impl BufSock {
+    fn connect(path: &Path) -> Option<Self> {
+        Some(Self {
+            socket: connect_unix(path)?,
+            read_buf: ReadBuf::new(),
+        })
+    }
+
+    fn recv_blocking(&mut self) -> Result<(), ReadError> {
+        loop {
+            match read(&self.socket, self.read_buf.spare_capacity()) {
+                Err(Errno::INTR) => (),
+                Ok(0) => break Err(ReadError::Eof),
+                Ok(_) => break Ok(()),
+                Err(errno) => break Err(ReadError::Errno(errno)),
+            }
+        }
+    }
+
+    fn recv_nonblock(&mut self) -> Result<(), ReadError> {
+        match recv(
+            &self.socket,
+            self.read_buf.spare_capacity(),
+            RecvFlags::DONTWAIT,
+        ) {
+            #[allow(unreachable_patterns)]
+            Err(Errno::AGAIN) | Err(Errno::WOULDBLOCK) => panic!(),
+            Err(Errno::INTR) => panic!(),
+            Ok((0, _)) => Err(ReadError::Eof),
+            Ok((_, _)) => Ok(()),
+            Err(errno) => Err(ReadError::Errno(errno)),
+        }
+    }
+
+    fn send_all(&self, mut buf: &[u8]) -> Result<(), Errno> {
+        while !buf.is_empty() {
+            match send(&self.socket, buf, SendFlags::NOSIGNAL) {
+                Ok(0) => panic!(),
+                Ok(count) => buf = &buf[count..],
+                Err(Errno::INTR) => (),
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(())
+    }
+}
+
+impl AsFd for BufSock {
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        self.socket.as_fd()
+    }
+}
+
+#[derive(Debug)]
+enum ReadError {
+    Errno(#[allow(dead_code)] Errno),
+    Eof,
 }

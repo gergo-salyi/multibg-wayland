@@ -146,6 +146,19 @@ impl BackgroundLayer {
     }
 }
 
+pub fn set_wallpaper(
+    bg_layers: &mut [BackgroundLayer],
+    output_name: &str,
+    workspace_name: &str,
+    workspace_number: i32,
+) {
+    if let Some(bg_layer) = bg_layers.iter_mut()
+        .find(|bg_layer| bg_layer.output_name.as_ref() == output_name)
+    {
+        bg_layer.draw_workspace_bg(workspace_name, workspace_number)
+    }
+}
+
 struct WorkspaceBackground {
     workspace_name: Box<str>,
     workspace_number: i32,
@@ -384,14 +397,8 @@ impl LayerShellHandler for State {
         debug!("Configured layer on output: {}, new surface size {}x{}",
             bg_layer.output_name,
             configure.new_size.0, configure.new_size.1);
-        if !bg_layer.workspace_bgs.is_empty()
-            && let Some(workspace) = self.compositor_ctx
-                .visible_workspace(&bg_layer.output_name)
-        {
-            bg_layer.draw_workspace_bg(
-                &workspace.workspace_name,
-                workspace.workspace_number,
-            );
+        if !bg_layer.workspace_bgs.is_empty() {
+            self.compositor_ctx.set_wallpaper(bg_layer);
         }
     }
 }
@@ -737,8 +744,7 @@ impl OutputHandler for State {
 
             // Workspaces on the destroyed output may have been moved anywhere
             // so reset the wallpaper on all the visible workspaces
-            self.compositor_ctx.visible_workspaces().into_iter()
-                .for_each(|workspace| self.handle_visible_workspace(workspace));
+            self.compositor_ctx.set_all_wallpapers(&mut self.background_layers);
 
             debug!(
                 "Dropping {} wallpapers on destroyed output for workspaces: {}",
@@ -1138,14 +1144,8 @@ fn load_wallpapers(
     state.background_layers[bg_layer_index].workspace_bgs =
         workspace_backgrounds;
     let bg_layer = &mut state.background_layers[bg_layer_index];
-    if bg_layer.configured
-        && let Some(workspace) = state.compositor_ctx
-            .visible_workspace(&bg_layer.output_name)
-    {
-        bg_layer.draw_workspace_bg(
-            &workspace.workspace_name,
-            workspace.workspace_number,
-        );
+    if bg_layer.configured {
+        state.compositor_ctx.set_wallpaper(bg_layer)
     }
     malloc_trim_all();
     print_memory_stats(&state.background_layers);
