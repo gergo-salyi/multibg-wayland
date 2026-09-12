@@ -181,7 +181,7 @@ impl Drop for Wallpaper {
 }
 
 enum Memory {
-    WlShm { pool: RawPool },
+    WlShm { size: usize },
     Dmabuf { gpu_memory: GpuMemory, params: Option<ZwpLinuxBufferParamsV1> },
 }
 
@@ -887,9 +887,9 @@ fn print_memory_stats(background_layers: &[BackgroundLayer]) {
             for bg in &bg_layer.workspace_bgs {
                 let factor = 1.0 / Rc::strong_count(&bg.wallpaper) as f32;
                 match &bg.wallpaper.borrow().memory {
-                    Memory::WlShm { pool } => {
+                    Memory::WlShm { size } => {
                         wl_shm_count += factor;
-                        wl_shm_size += factor * pool.len() as f32;
+                        wl_shm_size += factor * *size as f32;
                     },
                     Memory::Dmabuf { gpu_memory, .. } => {
                         dmabuf_count += factor;
@@ -1108,7 +1108,7 @@ fn load_wallpapers(
             workspace_number: wallpaper_file.workspace_number,
             wallpaper: Rc::new(RefCell::new(Wallpaper {
                 wl_buffer: Some(wl_buffer),
-                memory: Memory::WlShm { pool: shm_pool },
+                memory: Memory::WlShm { size: shm_pool.len() },
                 canon_path: wallpaper_file.canon_path,
                 canon_modified: wallpaper_file.canon_modified,
             })),
