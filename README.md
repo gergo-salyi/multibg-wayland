@@ -1,6 +1,6 @@
 # multibg-wayland
 
-Set a different wallpaper for the background of each Sway / Hyprland / niri workspace
+Set a different wallpaper for the background of each Sway / Hyprland / niri / Umbriel workspace
 
 ## News
 
@@ -24,11 +24,12 @@ In more detail:
 
 - **output**: A directory with the same name as a Wayland output such as eDP-1, HDMI-A-1
   - For multiple outputs this can be a symlink to the directory of an other output.
-  - Get the name of current outputs from the compositor with these Sway / Hyprland / niri commands:
+  - Get the name of current outputs from the compositor with these Sway / Hyprland / niri / Umbriel commands:
 
         $ swaymsg -t get_outputs
         $ hyprctl monitors
         $ niri msg outputs
+        $ umbriel outputs
 
 - **workspace_name**: The name of the workspace, by default use the compositors assigned workspace numbers as names: 1, 2, 3, ..., 10
   - Can be the name of a named workspace usually defined in the config file of the compositor. (Renaming workspaces while multibg-workspace is running might not be supported yet.)
@@ -67,7 +68,7 @@ With the `--gpu` option set GPU memory (again, shared with the compositor) is us
 
 #### Selecting the Wayland compositor
 
-The running Wayland compositor is autodetected based on environment variables. If this fails then try to set the `--compositor {sway|hyprland|niri}` command line option.
+The running Wayland compositor is autodetected based on environment variables. If this fails then try to set the `--compositor {sway|hyprland|niri|umbriel}` command line option.
 
 #### Matching output make-model-serial strings
 

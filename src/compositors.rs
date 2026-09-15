@@ -4,6 +4,7 @@ mod niri2505;
 mod niri2508;
 mod niri2604;
 mod sway;
+mod umbriel;
 
 use std::{
     env,
@@ -24,6 +25,7 @@ pub enum Compositor {
     Hyprland,
     Niri,
     Sway,
+    Umbriel,
 }
 
 pub struct OutputInfo {
@@ -50,6 +52,10 @@ impl Compositor {
             } else if xdg_desktop.as_bytes().starts_with(b"niri") {
                 debug!("Selecting compositor Niri based on {xdg_desktop_var}");
                 Some(Compositor::Niri)
+            } else if xdg_desktop.as_bytes().starts_with(b"umbriel") {
+                debug!("Selecting compositor Umbriel based on \
+                    {xdg_desktop_var}");
+                Some(Compositor::Umbriel)
             } else {
                 warn!("Unrecognized compositor from {xdg_desktop_var} \
                     environment variable: {xdg_desktop:?}");
@@ -71,6 +77,9 @@ impl Compositor {
         } else if env::var_os("NIRI_SOCKET").is_some() {
             debug!("Selecting compositor Niri based on NIRI_SOCKET");
             Some(Compositor::Niri)
+        } else if env::var_os("UMBRIEL_SOCKET").is_some() {
+            debug!("Selecting compositor Umbriel based on UMBRIEL_SOCKET");
+            Some(Compositor::Umbriel)
         } else {
             None
         }
@@ -99,6 +108,8 @@ impl Compositor {
                     niri2604::NiriConnectionTask::new().request_outputs()
                 }
             }
+            Compositor::Umbriel =>
+                umbriel::UmbrielConnectionTask::new().request_outputs(),
         }
     }
 }
@@ -170,6 +181,9 @@ impl ConnectionTask {
                     Box::new(niri2604::NiriConnectionTask::new())
                 }
             }
+            Compositor::Umbriel => Box::new(
+                umbriel::UmbrielConnectionTask::new()
+            ),
         };
 
         ConnectionTask {
@@ -218,6 +232,11 @@ impl ConnectionTask {
                         niri2604::NiriConnectionTask::new()
                             .subscribe_event_loop(event_sender)
                     }
+                }
+                Compositor::Umbriel => {
+                    let composer_interface =
+                        umbriel::UmbrielConnectionTask::new();
+                    composer_interface.subscribe_event_loop(event_sender);
                 }
             })
             .unwrap();
