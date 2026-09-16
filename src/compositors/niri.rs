@@ -139,7 +139,7 @@ impl Connection {
             Response::Handled => (),
             _ => panic!(),
         }
-        while next_bytes(&mut self.buf_sock.read_buf).is_some() {}
+        while self.buf_sock.read_buf.next_line().is_some() {}
     }
 }
 
@@ -161,7 +161,7 @@ impl Subscriber {
 
     fn read_set_wallpapers(&mut self, bg_layers: &mut [BgLayer]) {
         self.conn.buf_sock.recv_nonblock().unwrap();
-        while let Some(bytes) = next_bytes(&mut self.conn.buf_sock.read_buf) {
+        while let Some(bytes) = self.conn.buf_sock.read_buf.next_line() {
             let event: Event = serde_json::from_slice(bytes).unwrap();
             match event {
                 Event::WorkspacesChanged { workspaces } => {
@@ -187,16 +187,8 @@ impl Subscriber {
     }
 }
 
-fn next_bytes(read_buf: &mut ReadBuf) -> Option<&[u8]> {
-    let unparsed = &read_buf.buf[read_buf.parsed_len..];
-    let idx = memchr(unparsed, b'\n')?;
-    let reply_bytes = &unparsed[..idx];
-    read_buf.parsed_len += idx + 1;
-    Some(reply_bytes)
-}
-
 fn next_response(read_buf: &mut ReadBuf) -> Option<Response<'_>> {
-    let reply_bytes = next_bytes(read_buf)?;
+    let reply_bytes = read_buf.next_line()?;
     let reply: Result<Response, String> =
         serde_json::from_slice(reply_bytes).unwrap();
     Some(reply.unwrap())

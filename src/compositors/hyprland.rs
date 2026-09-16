@@ -250,16 +250,6 @@ struct ActiveWorkspace<'a> {
     name: Cow<'a, str>,
 }
 
-fn concat_os_str(parts: &[&OsStr]) -> OsString {
-    let mut os_string = OsString::with_capacity(
-        parts.iter().map(|part| part.len()).sum()
-    );
-    for part in parts {
-        os_string.push(part);
-    }
-    os_string
-}
-
 struct Event<'a> {
     name: &'a [u8],
     data: &'a [u8],

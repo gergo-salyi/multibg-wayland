@@ -1,7 +1,7 @@
 Usage:
   multibg-wayland [options] [--] [wallpaper_dir]
 
-Set a different wallpaper for each Sway / Hyprland / niri workspace.
+Set a different wallpaper for each Sway / Hyprland / niri / Umbriel workspace.
 
 Argument wallpaper_dir is the root of a directory structure:
   <wallpaper_dir>/<output>/<workspace_name>.{jpg|png|...}

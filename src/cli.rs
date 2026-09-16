@@ -177,9 +177,10 @@ impl Cli {
             b"sway" => Some(Compositor::Sway),
             b"hyprland" => Some(Compositor::Hyprland),
             b"niri" => Some(Compositor::Niri),
+            b"umbriel" => Some(Compositor::Umbriel),
             other => {
-                invalid("compositor", other,
-                    fmt_list(&["auto", "sway", "hyprland", "niri"]));
+                invalid("compositor", other, fmt_list(&[
+                    "auto", "sway", "hyprland", "niri", "umbriel"]));
                 return Err(())
             },
         };

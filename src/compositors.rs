@@ -1,6 +1,7 @@
 mod hyprland;
 mod niri;
 mod sway;
+mod umbriel;
 
 use super::*;
 
@@ -19,6 +20,7 @@ pub enum Compositor {
     Hyprland,
     Niri,
     Sway,
+    Umbriel,
 }
 
 impl Compositor {
@@ -39,6 +41,9 @@ impl Compositor {
             } else if xdg_desktop.as_bytes().starts_with(b"niri") {
                 debug_selecting("niri", xdg_desktop_var);
                 Some(Compositor::Niri)
+            } else if xdg_desktop.as_bytes().starts_with(b"umbriel") {
+                debug_selecting("Umbriel", xdg_desktop_var);
+                Some(Compositor::Umbriel)
             } else {
                 warn!("Unrecognized compositor from {xdg_desktop_var} \
                     environment variable: {xdg_desktop:?}");
@@ -59,6 +64,9 @@ impl Compositor {
         } else if env::var_os("NIRI_SOCKET").is_some() {
             debug_selecting("niri", "NIRI_SOCKET");
             Some(Compositor::Niri)
+        } else if env::var_os("UMBRIEL_SOCKET").is_some() {
+            debug_selecting("Umbriel", "UMBRIEL_SOCKET");
+            Some(Compositor::Umbriel)
         } else {
             None
         }
@@ -69,6 +77,7 @@ impl Compositor {
             Compositor::Sway => Box::new(sway::Sway::new()),
             Compositor::Hyprland => Box::new(hyprland::Hyprland::new()),
             Compositor::Niri => Box::new(niri::Niri::new()),
+            Compositor::Umbriel => Box::new(umbriel::Umbriel::new()),
         }
     }
 }
@@ -185,6 +194,14 @@ impl ReadBuf {
             self.buf.reserve_exact(capacity / 2);
         }
     }
+
+    fn next_line(&mut self) -> Option<&[u8]> {
+        let unparsed = &self.buf[self.parsed_len..];
+        let idx = memchr(unparsed, b'\n')?;
+        let line_bytes = &unparsed[..idx];
+        self.parsed_len += idx + 1;
+        Some(line_bytes)
+    }
 }
 
 struct BufSock {
@@ -249,4 +266,14 @@ impl AsFd for BufSock {
 enum ReadError {
     Errno(#[allow(dead_code)] Errno),
     Eof,
+}
+
+fn concat_os_str(parts: &[&OsStr]) -> OsString {
+    let mut os_string = OsString::with_capacity(
+        parts.iter().map(|part| part.len()).sum()
+    );
+    for part in parts {
+        os_string.push(part);
+    }
+    os_string
 }
