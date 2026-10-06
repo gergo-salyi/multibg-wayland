@@ -1,2 +1,5 @@
 /target
 /deps/*/target
+
+# voice model cache
+.cortexkit/
