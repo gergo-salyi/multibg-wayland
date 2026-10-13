@@ -77,9 +77,26 @@ impl CompositorInterface for UmbrielConnectionTask {
 }
 
 fn connect() -> UnixStream {
-    let socket_path = env::var_os("UMBRIEL_SOCKET")
-        .expect("UMBRIEL_SOCKET is not set. If you're not using umbriel, \
-            pass the correct --compositor argument.");
+    let socket_path = match env::var_os("UMBRIEL_SOCKET") {
+        Some(s) => s,
+        None => {
+            // 自動探測 /run/user/{uid}/umbriel-wayland-*.sock
+            let runtime_dir = env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/run/user/1000".to_string());
+            let mut found = None;
+            if let Ok(entries) = std::fs::read_dir(&runtime_dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
+                        if file_name.starts_with("umbriel-wayland-") && file_name.ends_with(".sock") {
+                            found = Some(path.into_os_string());
+                            break;
+                        }
+                    }
+                }
+            }
+            found.unwrap_or_else(|| "/run/user/1000/umbriel-wayland-0.sock".into())
+        }
+    };
     UnixStream::connect(&socket_path)
         .expect("failed to connect to umbriel socket")
 }
@@ -114,15 +131,27 @@ fn workspace_visible(workspace: &Value) -> WorkspaceVisible {
 }
 
 fn request_outputs() -> Vec<OutputInfo> {
-    let out = Command::new("umbriel")
-        .args(["outputs"])
-        .output()
-        .expect("failed to run `umbriel outputs`");
-    if !out.status.success() {
-        panic!("`umbriel outputs` exited with {}: {}",
-            out.status, String::from_utf8_lossy(&out.stderr));
+    // 從 workspaces 事件或 IPC 提取 output 清單，避免呼叫不支援的 `umbriel outputs` CLI
+    let mut outputs = Vec::new();
+    let workspaces = request_workspaces();
+    for ws in workspaces {
+        if let Some(out_name) = ws.get("output").and_then(Value::as_str) {
+            let out_str = out_name.to_string();
+            if !outputs.iter().any(|o: &OutputInfo| o.name == out_str) {
+                outputs.push(OutputInfo {
+                    name: out_str,
+                    make_model_serial: String::new(),
+                });
+            }
+        }
     }
-    parse_outputs(&String::from_utf8_lossy(&out.stdout))
+    if outputs.is_empty() {
+        outputs.push(OutputInfo {
+            name: "HDMI-A-1".to_string(),
+            make_model_serial: String::new(),
+        });
+    }
+    outputs
 }
 
 fn parse_outputs(text: &str) -> Vec<OutputInfo> {
